@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-# @st.cache_data
+@st.cache_data
 def scrape_current_data():
     """
     Scrapes the NBA 'Per Game' statistics for the 2025 season from Basketball Reference.
@@ -67,7 +67,10 @@ def scrape_current_data():
     # 4. Create main stat column (fantasy points)
     df['fg_pts'] = df['pts'] + df['trb'] + 2*df['ast'] + 3*df['blk'] + 3*df['stl']
 
-    # 5. Select relevant columns for 9-Category H2H fantasy scoring
+    # 5. Remove players with low number of minutes played
+    df = df[df.minutes_played > 5].copy()
+
+    # 6. Select relevant columns for 9-Category H2H fantasy scoring
     cols_to_keep = ['player_name','pts', 'trb', 'ast', 'stl', 'blk', 'tov', 'games_played',
                     'minutes_played', 'games_started', 'fg', 'fga', 'fg_pcnt', '3p', '3pa', '3p_pcnt', '2p', '2pa',
                     '2p_pcnt', 'efg_pnt','fg_pts']
@@ -96,3 +99,36 @@ def scrape_current_data():
     # st.info(f"Data scraped from: {url}")
 
     return df
+
+@st.cache_data
+def load_cost_data():
+    # Transformed URL for CSV export of the sheet with gid=1056607967
+    GSHEET_COST_URL = "https://docs.google.com/spreadsheets/d/15tiGXPRU1jYF_4I2ee6U3CrRBZecUgoq5N7HX_DupB4/gviz/tq?tqx=out:csv&gid=1056607967"
+    # st.info(f"Attempting to load cost data from Google Sheet...")
+
+    try:
+        df = pd.read_csv(GSHEET_COST_URL)
+        df = df[['player_name', 'team', 'current_cost', 'current_selection', 'current_form', 'current_total_points']]
+        return df
+
+    except Exception as e:
+        st.error(
+            f"Error loading cost data from Google Sheet. Ensure the sheet is published to the web or the URL is correct. Error: {e}")
+        # Fallback to an empty DataFrame if loading fails
+        return pd.DataFrame({
+            'player_name': [], 'team': [], 'current_cost': [], 'current_selection': [], 'current_form': [],
+            'current_total_points': []
+        })
+
+@st.cache_data
+def load_schedule_data():
+    GSHEET_SCHED_URL = "https://docs.google.com/spreadsheets/d/15tiGXPRU1jYF_4I2ee6U3CrRBZecUgoq5N7HX_DupB4/gviz/tq?tqx=out:csv&gid=169891812"
+
+    try:
+        df_sched = pd.read_csv(GSHEET_SCHED_URL)
+        df_sched = df_sched.fillna(0)
+        return df_sched
+    except Exception as e:
+        st.error(
+            f"Error loading scheduled data from Google Sheet. Ensure the sheet is published to the web or the URL is correct. Error: {e}"
+            )

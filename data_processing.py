@@ -1,17 +1,19 @@
-from stats_page_scrapping import *
-from cost_gsheet_load import *
+from data_loading import *
 import pandas as pd
 import numpy as np
 import streamlit as st
 
 @st.cache_data
-def data_processing():
-    df_stats = scrape_current_data()
-    df_cost = load_gsheet_data()
+def join_dataframes():
+    df_stats= scrape_current_data()
+    df_cost = load_cost_data()
+    df_sched = load_schedule_data()
     df_data = pd.merge(df_stats, df_cost, on='player_name')
+    df_data = pd.merge(df_data, df_sched, how = 'left', left_on = 'team', right_on = 'week_day')
 
     if df_data.empty:
-        st.warning("Error on data processing")
+        st.warning("Error on joining datasets")
+
     return df_data
 
 @st.cache_data
