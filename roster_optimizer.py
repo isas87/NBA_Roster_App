@@ -2,11 +2,6 @@ import pandas as pd
 import numpy as np
 from pulp import LpProblem, LpVariable, LpMaximize, LpStatus, value, lpSum
 
-import pandas as pd
-import numpy as np
-from pulp import LpProblem, LpVariable, LpMaximize, LpStatus, value, lpSum
-
-
 def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
     """
     Selects an optimal 10-player NBA roster subject to cost, position, and
@@ -132,7 +127,7 @@ def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
         print(f"Optimization Status: Optimal (Max Points: {value(prob.objective):.2f})")
         print(f"Total Cost of Roster: {result_df['current_cost'].sum()}")
         # print(f"Roster size: {len(result_df)} (BC: {bc_count_final}, FC: {fc_count_final})")
-        display(result_df.head())
+        # display(result_df.head())
 
         return result_df[output_cols]
     else:
@@ -140,36 +135,34 @@ def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
         print("No solution found that satisfies all the strict constraints.")
         return pd.DataFrame()
 
-budget = 100
-week_start = 1
-num_weeks = 1
-len = week_start + num_weeks - 1
+def run_optimization(budget, week_start, num_weeks, df_rank):
+    len = week_start + num_weeks - 1
 
-# Generate the list of column names based on the start and end range
-week_columns = [
-    f'{i}_{j}'
-    for i in range(week_start, len + 1)
-    for j in range(1, 7)
-]
+    # Generate the list of column names based on the start and end range
+    week_columns = [
+        f'{i}_{j}'
+        for i in range(week_start, len + 1)
+        for j in range(1, 7)
+    ]
 
-df_rank['games_available'] = df_rank[week_columns].sum(axis=1)
+    df_rank['games_available'] = df_rank[week_columns].sum(axis=1)
 
-print("--- Starting Optimization ---")
-optimized_roster_df = optimize_nba_roster(df_rank, week_columns)
+    print("--- Starting Optimization ---")
+    optimized_roster_df = optimize_nba_roster(df_rank, week_columns)
 
-if not optimized_roster_df.empty:
-    print("\n--- Optimized Roster ---")
-    print(optimized_roster_df)
+    if not optimized_roster_df.empty:
+        print("\n--- Optimized Roster ---")
+        print(optimized_roster_df)
 
-    # Verify daily constraints on the optimal roster
-    print("\n--- Daily Split Verification ---")
-    for day in days_of_week:
-        bc_count = \
-        optimized_roster_df[(optimized_roster_df['position'] == 'Backcourt') & (optimized_roster_df[day] == 1)].shape[0]
-        fc_count = \
-        optimized_roster_df[(optimized_roster_df['position'] == 'Frontcourt') & (optimized_roster_df[day] == 1)].shape[
-            0]
-        total_count = bc_count + fc_count
-        status = "OK (5 total, 3/2 or 2/3 split)" if total_count == 5 and ((bc_count == 3 and fc_count == 2) or (
-                    bc_count == 2 and fc_count == 3)) else "N/A (Total playing != 5)" if total_count != 0 else "N/A (No players playing)"
-        print(f"{day}: BC={bc_count}, FC={fc_count}, Total={total_count} -> {status}")
+        # Verify daily constraints on the optimal roster
+        print("\n--- Daily Split Verification ---")
+        for day in days_of_week:
+            bc_count = \
+            optimized_roster_df[(optimized_roster_df['position'] == 'Backcourt') & (optimized_roster_df[day] == 1)].shape[0]
+            fc_count = \
+            optimized_roster_df[(optimized_roster_df['position'] == 'Frontcourt') & (optimized_roster_df[day] == 1)].shape[
+                0]
+            total_count = bc_count + fc_count
+            status = "OK (5 total, 3/2 or 2/3 split)" if total_count == 5 and ((bc_count == 3 and fc_count == 2) or (
+                        bc_count == 2 and fc_count == 3)) else "N/A (Total playing != 5)" if total_count != 0 else "N/A (No players playing)"
+            print(f"{day}: BC={bc_count}, FC={fc_count}, Total={total_count} -> {status}")

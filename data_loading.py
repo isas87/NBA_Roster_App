@@ -7,7 +7,7 @@ def scrape_current_data():
     Scrapes the NBA 'Per Game' statistics for the 2025 season from Basketball Reference.
     The function uses st.info/st.error for status updates in the Streamlit environment.
     """
-    url = 'https://www.basketball-reference.com/leagues/NBA_2025_per_game.html'
+    url = 'https://www.basketball-reference.com/leagues/NBA_2026_per_game.html'
 
     try:
         # pd.read_html automatically finds tables on the webpage

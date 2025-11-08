@@ -14,6 +14,7 @@ def join_dataframes():
     if df_data.empty:
         st.warning("Error on joining datasets")
 
+    df_data = df_data.sort_values(by='fg_pts', ascending=False)
     return df_data
 
 @st.cache_data
@@ -53,14 +54,16 @@ def calculate_z_scores(df_data, stats_cols, cost_col):
     # df_analysis['composite_Zscore'] = df_analysis[z_cols].sum(axis=1)
     df_analysis['composite_Zscore'] = df_analysis['pts_Z'] + df_analysis['trb_Z'] + 2*df_analysis['ast_Z'] + 3*df_analysis['blk_Z'] + 3*df_analysis['stl_Z']
 
-    df_analysis['cost_Zscore'] = (df_analysis[cost_col] - df_analysis[cost_col].mean()) / df_analysis[
-        cost_col].std()
+    df_analysis['cost_Zscore'] = (df_analysis[cost_col].max() - df_analysis[cost_col]) / (df_analysis[
+        cost_col].max() - df_analysis[cost_col].min())+1
     df_analysis['pts_per_cost'] = df_analysis['composite_Zscore'] / df_analysis['cost_Zscore']
 
     # Rank the players by Cost and by Composite Score
     df_analysis = df_analysis.sort_values(by='pts_per_cost', ascending=False)
-    df_analysis['rank_cost'] = np.arange(1, len(df_analysis) + 1)
+    df_analysis['rank_pts_cost'] = np.arange(1, len(df_analysis) + 1)
     df_analysis = df_analysis.sort_values(by='composite_Zscore', ascending=False)
     df_analysis['rank_score'] = np.arange(1, len(df_analysis) + 1)
+    df_analysis = df_analysis.sort_values(by='current_cost', ascending=False)
+    df_analysis['rank_cost'] = np.arange(1, len(df_analysis) + 1)
 
     return df_analysis, z_cols

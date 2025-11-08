@@ -1,6 +1,7 @@
 # Import the data processing functions from the separate file
 from data_processing import join_dataframes, calculate_z_scores
 from plots_for_app import plot_z_score_comparison
+from roster_optimizer import optimize_nba_roster
 import streamlit as st
 
 # Call the imported data loading function
@@ -23,11 +24,11 @@ st.markdown(
     "This tool uses **Season-to-Date Averages** scraped directly from Basketball Reference Page to calculate player value via the Composite Z-Score method.")
 st.divider()
 
-tab1, tab2 = st.tabs(["🗃 Statistics", "Roster Simulator"])
+tab1, tab2, tab3 = st.tabs(["🗃 Statistics", "Roster Simulator", "Plot Stats"])
 
 # --- Tab 1: Season Statistics ---
 with tab1:
-    tab1.subheader("NBA 2025/206 Season")
+    tab1.subheader("NBA 2025/206 Season - Sample Data")
 
     # Display the current data used for analysis
     if df_raw.empty:
@@ -90,27 +91,34 @@ with tab1:
 # --- Tab 2: Roaster Simulation---
 with tab2:
     tab2.subheader("2. Roster Simulation")
-    tab2.markdown(
+
+# --- Tab 3: Plot stats---
+with tab3:
+
+    tab3.markdown(
         "Select players in the sidebar to visualize how their Composite Z-Scores compare against each other."
     )
 
-    # tab2.multiselect(
-    #     "Select players in the sidebar",
-    #     top_players = fantasy_rankings.index.tolist()
-    # )
+    top_players = fantasy_rankings.index.tolist()
 
+    player_comparison_selection = tab3.multiselect(
+        "Select players in the sidebar",
+        top_players,
+    )
+
+    #
     # player_comparison_selection = st.sidebar.multiselect(
     #     "Select Players to Compare",
     #     options=top_players,
     #     default=top_players[:4]
     # )
 
-    # comparison_fig = plot_z_score_comparison(fantasy_rankings, player_comparison_selection)
+    comparison_fig = plot_z_score_comparison(fantasy_rankings, player_comparison_selection)
 
-    # if comparison_fig:
-    #     st.pyplot(comparison_fig)
-    # else:
-    #     st.info("Select players in the sidebar to generate a comparison chart.")
+    if comparison_fig:
+        st.pyplot(comparison_fig)
+    else:
+        st.info("Select players in the sidebar to generate a comparison chart.")
 
 st.markdown("---")
 st.caption("Application built for NBA data analysts using Streamlit and live-scraped data.")
