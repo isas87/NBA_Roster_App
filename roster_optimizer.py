@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from pulp import LpProblem, LpVariable, LpMaximize, LpStatus, value, lpSum
 
+
 def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
     """
     Selects an optimal 10-player NBA roster subject to cost, position, and
@@ -127,13 +128,12 @@ def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
         print(f"Optimization Status: Optimal (Max Points: {value(prob.objective):.2f})")
         print(f"Total Cost of Roster: {result_df['current_cost'].sum()}")
         # print(f"Roster size: {len(result_df)} (BC: {bc_count_final}, FC: {fc_count_final})")
-        # display(result_df.head())
-
         return result_df[output_cols]
     else:
         print(f"Optimization Status: {LpStatus[prob.status]}")
         print("No solution found that satisfies all the strict constraints.")
         return pd.DataFrame()
+
 
 def run_optimization(budget, week_start, num_weeks, df_rank):
     len = week_start + num_weeks - 1
@@ -156,12 +156,11 @@ def run_optimization(budget, week_start, num_weeks, df_rank):
 
         # Verify daily constraints on the optimal roster
         print("\n--- Daily Split Verification ---")
-        for day in days_of_week:
-            bc_count = \
-            optimized_roster_df[(optimized_roster_df['position'] == 'Backcourt') & (optimized_roster_df[day] == 1)].shape[0]
-            fc_count = \
-            optimized_roster_df[(optimized_roster_df['position'] == 'Frontcourt') & (optimized_roster_df[day] == 1)].shape[
-                0]
+        for day in week_columns:
+            bc_count = optimized_roster_df[
+                (optimized_roster_df['position'] == 'Backcourt') & (optimized_roster_df[day] == 1)].shape[0]
+            fc_count = optimized_roster_df[
+                (optimized_roster_df['position'] == 'Frontcourt') & (optimized_roster_df[day] == 1)].shape[0]
             total_count = bc_count + fc_count
             status = "OK (5 total, 3/2 or 2/3 split)" if total_count == 5 and ((bc_count == 3 and fc_count == 2) or (
                         bc_count == 2 and fc_count == 3)) else "N/A (Total playing != 5)" if total_count != 0 else "N/A (No players playing)"

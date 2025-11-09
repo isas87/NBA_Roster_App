@@ -2,6 +2,7 @@ from data_loading import *
 import pandas as pd
 import numpy as np
 import streamlit as st
+from datetime import date
 
 @st.cache_data
 def join_dataframes():
@@ -14,8 +15,24 @@ def join_dataframes():
     if df_data.empty:
         st.warning("Error on joining datasets")
 
+    df_data['etl_date'] = date.today()
     df_data = df_data.sort_values(by='fg_pts', ascending=False)
+    # df_data.to_csv('data/stats_hist.csv')
     return df_data
+
+@st.cache_data
+def load_hist_stats():
+    prev_stats = pd.read_csv('data/stats_hist.csv')
+    new_stats = join_dataframes()
+
+    # Only join if it is new data
+    if prev_stats['etl_run'].max() < new_stats['etl_run'].max():
+        joined_data = pd.concat([prev_stats, new_stats])
+    else:
+        joined_data = pd.concat([prev_stats, pd.DataFrame()])
+
+    joined_data.to_csv('data/stats_hist.csv')
+    return joined_data
 
 @st.cache_data
 def calculate_z_scores(df_data, stats_cols, cost_col):

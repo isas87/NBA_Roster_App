@@ -71,7 +71,7 @@ def scrape_current_data():
     df = df[df.minutes_played > 5].copy()
 
     # 6. Select relevant columns for 9-Category H2H fantasy scoring
-    cols_to_keep = ['player_name','pts', 'trb', 'ast', 'stl', 'blk', 'tov', 'games_played',
+    cols_to_keep = ['player_name', 'position', 'pts', 'trb', 'ast', 'stl', 'blk', 'tov', 'games_played',
                     'minutes_played', 'games_started', 'fg', 'fga', 'fg_pcnt', '3p', '3pa', '3p_pcnt', '2p', '2pa',
                     '2p_pcnt', 'efg_pnt','fg_pts']
 
@@ -86,7 +86,8 @@ def scrape_current_data():
     df = df[cols_to_keep]
 
     # 3. Convert statistical columns to numeric
-    stats_cols = [col for col in cols_to_keep if col != 'player_name']
+    exclusion_list = ['player_name', 'position']
+    stats_cols = [col for col in cols_to_keep if col not in exclusion_list]
 
     for col in stats_cols:
         # Coerce errors to NaN for players who might have null values
