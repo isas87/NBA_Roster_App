@@ -109,7 +109,7 @@ def load_cost_data():
 
     try:
         df = pd.read_csv(GSHEET_COST_URL)
-        df = df[['player_name', 'team', 'current_cost', 'current_selection', 'current_form', 'current_total_points']]
+        df = df[['player_name', 'team', 'current_cost', 'current_selection', 'current_form', 'current_total_points','is_out','when_back']]
         return df
 
     except Exception as e:

@@ -4,6 +4,7 @@ import numpy as np
 import streamlit as st
 from datetime import date
 
+# Load most recent data in the background
 @st.cache_data
 def join_dataframes():
     df_stats= scrape_current_data()
@@ -21,17 +22,20 @@ def join_dataframes():
     return df_data
 
 @st.cache_data
-def load_hist_stats():
+def load_hist_stats(new_stats, prev_stats) -> pd.DataFrame:
+    st.info("Starting historical data append process...")
+
     prev_stats = pd.read_csv('data/stats_hist.csv')
-    new_stats = join_dataframes()
 
     # Only join if it is new data
-    if prev_stats['etl_run'].max() < new_stats['etl_run'].max():
-        joined_data = pd.concat([prev_stats, new_stats])
+    if pd.to_datetime(prev_stats['etl_date']).dt.date.max() < new_stats['etl_date'].max():
+        joined_data = pd.concat([prev_stats, new_stats], ignore_index=True)
     else:
         joined_data = pd.concat([prev_stats, pd.DataFrame()])
 
     joined_data.to_csv('data/stats_hist.csv')
+    st.success(f"Successfully combined {len(new_stats)} new rows with {len(prev_stats)} historical rows.")
+
     return joined_data
 
 @st.cache_data
