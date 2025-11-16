@@ -22,24 +22,22 @@ def join_dataframes():
     return df_data
 
 @st.cache_data
-def load_hist_stats(new_stats, prev_stats) -> pd.DataFrame:
-    st.info("Starting historical data append process...")
-
-    prev_stats = pd.read_csv('data/stats_hist.csv')
-
+def merge_dataframes(prev_data , new_data):
     # Only join if it is new data
-    if pd.to_datetime(prev_stats['etl_date']).dt.date.max() < new_stats['etl_date'].max():
-        joined_data = pd.concat([prev_stats, new_stats], ignore_index=True)
+    if pd.to_datetime(prev_data['etl_date']).dt.date.max() < new_data['etl_date'].max():
+        st.info("Starting historical data append process...")
+        joined_data = pd.concat([prev_data, new_data], ignore_index=True)
     else:
-        joined_data = pd.concat([prev_stats, pd.DataFrame()])
+        st.info("There is no new historical data to append.")
+        joined_data = pd.concat([prev_data, pd.DataFrame()])
 
     joined_data.to_csv('data/stats_hist.csv')
-    st.success(f"Successfully combined {len(new_stats)} new rows with {len(prev_stats)} historical rows.")
+    st.success(f"Successfully combined {len(new_data)} new rows with {len(prev_data)} historical rows.")
 
     return joined_data
 
 @st.cache_data
-def calculate_z_scores(df_data, stats_cols, cost_col):
+def calculate_z_scores(df_data, stats_cols, cost_col, fgp_col):
     """
     Calculates the Z-Score for each player across key fantasy categories
     based on the season-to-date per-game averages.
@@ -52,7 +50,7 @@ def calculate_z_scores(df_data, stats_cols, cost_col):
     df_analysis = df_data.copy().set_index('player_name')
 
     # Filter only players who have played enough games/minutes to be considered
-    df_analysis = df_analysis[(df_analysis['pts'] > 0) & (df_analysis['fg_pts'] > 0)]
+    # df_analysis = df_analysis[(df_analysis['pts'] > 0) & (df_analysis['fg_pts'] > 0)]
 
     for stat in stats_cols:
         # Calculate mean and standard deviation across all filtered players
@@ -66,25 +64,34 @@ def calculate_z_scores(df_data, stats_cols, cost_col):
         else:
             df_analysis[z_score_col] = (df_analysis[stat] - mean_val) / std_val
 
-        # # For Turnovers (TOV), lower is better, so invert the Z-score sign
-        # if stat == 'tov':
-        #     df_analysis[z_score_col] *= -1
-
-    # Calculate Composite Z-Score (Sum Z-scores across all categories)
+    # Calculate Composite Z-Score
     z_cols = [col for col in df_analysis.columns if '_Z' in col]
-    # df_analysis['composite_Zscore'] = df_analysis[z_cols].sum(axis=1)
     df_analysis['composite_Zscore'] = df_analysis['pts_Z'] + df_analysis['trb_Z'] + 2*df_analysis['ast_Z'] + 3*df_analysis['blk_Z'] + 3*df_analysis['stl_Z']
 
-    df_analysis['cost_Zscore'] = (df_analysis[cost_col].max() - df_analysis[cost_col]) / (df_analysis[
-        cost_col].max() - df_analysis[cost_col].min())+1
-    df_analysis['pts_per_cost'] = df_analysis['composite_Zscore'] / df_analysis['cost_Zscore']
+    # Calculate Cost Score - lower is better
+    mean_cost = df_analysis[cost_col].mean()
+    std_cost = df_analysis[cost_col].std()
+    df_analysis['cost_Zscore'] = (df_analysis[cost_col] - mean_cost) / std_cost
+    df_analysis['cost_Zscore'] *= -1
+    # df_analysis['cost_Zscore'] = (df_analysis[cost_col].max() - df_analysis[cost_col]) / (df_analysis[
+    #     cost_col].max() - df_analysis[cost_col].min())+1
+
+    df_analysis['pts_per_cost'] = df_analysis['fg_pts'] / df_analysis['current_cost']
+    mean_ppc = df_analysis['pts_per_cost'].mean()
+    std_ppc = df_analysis['pts_per_cost'].std()
+    df_analysis['pts_per_cost_score'] = (df_analysis['pts_per_cost'] - mean_ppc) / std_ppc
 
     # Rank the players by Cost and by Composite Score
+    df_analysis = df_analysis.sort_values(by='fg_pts', ascending=False)
+    df_analysis['rank_pts'] = np.arange(1, len(df_analysis) + 1)
+
     df_analysis = df_analysis.sort_values(by='pts_per_cost', ascending=False)
-    df_analysis['rank_pts_cost'] = np.arange(1, len(df_analysis) + 1)
+    df_analysis['rank_ppc'] = np.arange(1, len(df_analysis) + 1)
+
     df_analysis = df_analysis.sort_values(by='composite_Zscore', ascending=False)
     df_analysis['rank_score'] = np.arange(1, len(df_analysis) + 1)
-    df_analysis = df_analysis.sort_values(by='current_cost', ascending=False)
+
+    df_analysis = df_analysis.sort_values(by='current_cost', ascending=True)
     df_analysis['rank_cost'] = np.arange(1, len(df_analysis) + 1)
 
     return df_analysis, z_cols

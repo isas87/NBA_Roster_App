@@ -1,8 +1,20 @@
 # Import the data processing functions from the separate file
-from data_processing import join_dataframes, calculate_z_scores, load_hist_stats
+import pandas as pd
+from data_processing import join_dataframes, calculate_z_scores, merge_dataframes
 from plots_for_app import plot_z_score_comparison
 from roster_optimizer import optimize_nba_roster
 import streamlit as st
+
+# Load required dataframes #
+
+# Load the newest data in the background
+df_hist = pd.read_csv('data/stats_hist.csv')
+df_raw = join_dataframes()
+TEAM_COL = ['team']
+FGP_COL = ['fg_pts']
+COST_COL = ['current_cost']
+FANTASY_STATS = ['pts', 'trb', 'ast', 'stl', 'blk']
+SEL_COLS = TEAM_COL + FGP_COL + COST_COL + FANTASY_STATS
 
 # --- 1. Streamlit Application Layout --- #
 
@@ -10,70 +22,72 @@ import streamlit as st
 st.set_page_config(layout="wide", page_title="NBA Fantasy Analysis App")
 st.title("🏀 NBA Fantasy Analysis 🏀")
 st.markdown(
-    "This tool uses **Season-to-Date Averages** scraped directly from Basketball Reference Page to calculate player value via the Composite Z-Score method.")
+    "This tool uses **Season-to-Date Averages** scraped directly from Basketball Reference Page to calculate player value.")
 # st.divider()
 tab1, tab2, tab3 = st.tabs(["🗃 Statistics", "Roster Simulator", "Player Analysis"])
 
 # --- Tab 1: Season Statistics ---
 with tab1:
-    # st.header("New Data Ingestion Control")
-    tab1.markdown(
-        "Use the button below to append the currently loaded Google Sheet data (`df_raw`) to the permanent historical record (`st.session_state.historical_data`).")
-
-    col1, col2 = tab1.columns([1, 1])
-
-    # Call the imported data loading function
-    df_raw = join_dataframes()
-    MAIN_COLS = ['team','fg_pts']
-    COST_COL = ['current_cost']
-    FANTASY_STATS = ['pts', 'trb', 'ast', 'stl', 'blk']
-    SEL_COLS = MAIN_COLS+COST_COL+FANTASY_STATS
+    tab1.header("1. Data Loading")
+    col1, col2, col3 = tab1.columns([3, 3, 2], vertical_alignment="center")
 
     # Initialize Session State for History (ensures data persists through reruns)
     if 'historical_data' not in st.session_state:
-        st.session_state.historical_data = load_hist_stats(df_raw)
+        st.session_state.historical_data = df_hist
 
     with col1:
+        st.subheader("Last Historical Records")
+        st.dataframe(
+            st.session_state.historical_data[['player_name', 'pts', 'etl_date']].sort_values(by = ['etl_date', 'pts'], ascending= [False, False]).head(5),
+            use_container_width=True
+        )
+
+    with col2:
+        st.subheader("Latest Data - Sample")
+        st.dataframe(
+            df_raw[['player_name', 'pts', 'etl_date']].sort_values(by = ['etl_date', 'pts'], ascending= [False, False]).head(5),
+            use_container_width=True
+        )
+
+    with col3:
+        st.metric(
+            label="Historical Data Length",
+            value=f"{len(st.session_state.historical_data)} rows",
+            delta=f"+{len(df_raw)} rows pending append"
+        )
+
+        # row1, row2, row3 = st.rows((1, 2, 3))
+        st.markdown(
+            "Use the button below to append new data to the historical.")
+
         # Button logic: When clicked, run load_hist and update session state
         if st.button("Append New Data to History", type="primary"):
             # The history data is pulled from session state
             history_data = st.session_state.historical_data
 
             # Call the new function (combining data and adding date)
-            combined_data = load_hist_stats(df_raw, history_data)
+            combined_data = merge_dataframes(history_data, df_raw)
 
             # Update session state with the combined data
             st.session_state.historical_data = combined_data
-
             st.success(f"Data successfully appended! New total history length: {len(combined_data)} rows.")
 
-    with col2:
-        st.metric(
-            label="Historical Data Length",
-            value=f"{len(st.session_state.historical_data)} rows",
-            delta=f"+{len(df_raw)} rows pending append"
-        )
-    st.subheader("Last 5 Historical Records")
-    st.dataframe(
-        st.session_state.historical_data[['player_name', 'pts', 'etl_date']].tail(5),
-        use_container_width=True
-    )
-
-    tab1.subheader("NBA 2025/206 Season - Sample Data")
+    tab1.subheader("NBA 2025/2026 Season - Sample Data")
     df_hist = st.session_state.historical_data
+
     # Display the current data used for analysis
     if df_hist.empty:
         st.warning("No data to display")
     else:
-        tab1.dataframe(df_hist.set_index('player_name')[SEL_COLS].head(10), width='stretch')
+        tab1.dataframe(df_hist.set_index('player_name')[SEL_COLS].head(5), width='stretch')
 
     # Calculate and display rankings (using the imported function)
-    fantasy_rankings, z_cols = calculate_z_scores(df_raw, FANTASY_STATS, COST_COL)
+    fantasy_rankings, z_cols = calculate_z_scores(df_raw, FANTASY_STATS, COST_COL, FGP_COL)
 
     if fantasy_rankings.empty:
         st.warning("Cannot calculate rankings. Please check data scraping status above.")
     else:
-        tab1.subheader("1. Composite Z-Score Ranking")
+        tab1.header("2. Composite Score Ranking")
         tab1.markdown("""
         The **Composite Z-Score** standardizes player performance across all selected categories (PTS, REB, AST, STL, BLK). 
         A higher score indicates a better overall fantasy player relative to the field. 
@@ -81,50 +95,119 @@ with tab1:
 
     # Display the final ranking table
     tab1.subheader("Full Fantasy Ranking Table")
-    display_cols = MAIN_COLS + COST_COL+['rank_cost']+['pts_per_cost'] + ['rank_score'] + ['composite_Zscore'] + z_cols+['cost_Zscore']
+    display_cols = TEAM_COL + COST_COL + FGP_COL + ['pts_per_cost'] + ['composite_Zscore'] + z_cols + ['cost_Zscore']
     tab1.dataframe(
         fantasy_rankings[display_cols].style.background_gradient(cmap='RdYlGn', subset=['pts_per_cost','composite_Zscore']),
         use_container_width=True,
         column_config={
-            "fg_pts": st.column_config.NumberColumn(
-                "FG Points",
-                format="%.2f",
-            ),
+            "team": "Team",
             "current_cost": st.column_config.NumberColumn(
                 "Cost",
                 format="%.2f",
             ),
-            "pts_per_cost": st.column_config.NumberColumn(
-                "Points per Cost",
+            "fg_pts": st.column_config.NumberColumn(
+                "FG Pts",
                 format="%.2f",
             ),
-            "rank_cost": st.column_config.NumberColumn(
-                "Rank Cost",
-                format="%d",
-            ),
-            "rank_score": st.column_config.NumberColumn(
-                "Rank Score",
-                format="%d",
+            "pts_per_cost": st.column_config.NumberColumn(
+                "Pts per Cost (PPC)",
+                format="%.2f",
             ),
             "composite_Zscore": st.column_config.NumberColumn(
-                "Composite Z-Score",
+                "Composite Score",
                 format="%.2f",
             ),
-            "pts_Z": "Points Z-Score",
-            "trb_Z": "Rebounds Z-Score",
-            "ast_Z": "Assists Z-Score",
-            "stl_Z": "Steals Z-Score",
-            "blk_Z": "Blocks Z-Score",
-            "cost_Zscore": "Cost Z-Score",
+            "pts_Z": "Points Score",
+            "trb_Z": "Rebounds Score",
+            "ast_Z": "Assists Score",
+            "stl_Z": "Steals Score",
+            "blk_Z": "Blocks Score",
+            "cost_Zscore": "Cost Score",
         }
     )
-
-    # st.success(
-    #     f"**Optimal Roster Pick:** The highest ranked player based on current season data is **{fantasy_rankings.index[0]}**.")
 
 # --- Tab 2: Roaster Simulation---
 with tab2:
     tab2.subheader("2. Roster Simulation")
+
+    max_games = df_raw['games_played'].max()
+    budget = 100
+    # week_start = 4
+    # num_weeks = 1
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        week_start = st.number_input(
+            "Week Start", min_value=1, max_value=25, value=None, step=1, placeholder = "Type a week..."
+        )
+
+    with col2:
+        num_weeks = st.number_input(
+            "# Weeks", value=1, placeholder="Type length of projection..."
+        )
+
+    week_len = week_start + num_weeks - 1
+    week_columns = [
+        f'{i}_{j}'
+        for i in range(week_start, week_len + 1)
+        for j in range(1, 7)
+    ]
+
+    today = pd.Timestamp.today().normalize()
+    date_plus = today + pd.Timedelta(weeks=num_weeks)
+    days_until_sunday = (6 - date_plus.weekday() + 7) % 7  # In pandas: Monday=0, ..., Sunday=6
+    days_until_sunday = 7 if days_until_sunday == 0 else days_until_sunday
+    final_date = date_plus + pd.Timedelta(days=days_until_sunday)
+    # starting = df_raw.loc[df_raw['in_current_roster'] == 1, 'player_name'].tolist()
+    starting = ['Nikola Jokic', 'Victor Wembanyama', 'Shai Gilgeous-Alexander', 'Ryan Rollins', 'Kon Knueppel',
+                'Jeremiah Fears', 'Ryan Kalkbrenner', 'Collin Gillespie', 'Neemias Queta', 'Mouhamed Gueye']
+
+    df_filter = fantasy_rankings[
+        pd.to_datetime(fantasy_rankings['when_back']) < final_date]  # exclude those that are not available
+    df_filter = df_filter[df_filter['is_out'] < 2]  # exclude those that won't play
+    df_filter = df_filter[df_filter['games_played'] / max_games > .5]
+    df_filter = df_filter[
+        ~((df_filter['rank_pts'] > 250) | (df_filter['rank_ppc'] > 250) | (df_filter['rank_score'] > 250))]
+
+    df_filter['games_available'] = df_filter[week_columns].sum(axis=1)
+
+    with col3:
+        # Button logic: When clicked, run roster optimization and update session state
+        if st.button("Run Roster Optimization", type="primary"):
+            st.info("--- Starting Optimization ---")
+            # Call the optimization function
+            optimized_roster_df = optimize_nba_roster(df_filter, week_columns, budget, 'fg_pts', starting)
+            if 'optimized_roster' not in st.session_state:
+                st.session_state.optimized_roster = optimized_roster_df
+
+        df_roster = st.session_state.optimized_roster
+
+        if not df_roster.empty:
+            # Verify daily constraints on the optimal roster
+            for day in week_columns:
+                bc_count = df_roster[
+                    (df_roster['position'] == 'Backcourt') & (df_roster[day] == 1)].shape[0]
+                fc_count = df_roster[
+                    (df_roster['position'] == 'Frontcourt') & (df_roster[day] == 1)].shape[0]
+                total_count = bc_count + fc_count
+                status = "OK (5 total, 3/2 or 2/3 split)" if total_count == 5 and (
+                            (bc_count == 3 and fc_count == 2) or (
+                            bc_count == 2 and fc_count == 3)) else "N/A (Total playing != 5)" if total_count != 0 else "N/A (No players playing)"
+                    # print(f"{day}: BC={bc_count}, FC={fc_count}, Total={total_count} -> {status}")
+            st.success(f"Roster Optimization Status: {status}")
+
+    if df_roster.empty:
+        st.info("--- Roster did not run ---")
+    else:
+        st.subheader("Optimized Roster")
+        # Roster cost
+        check_cost = df_roster['current_cost'].sum()
+        st.markdown(f"**Current Cost:** {check_cost}")
+
+        st.dataframe(
+            df_roster,
+            use_container_width=True
+        )
 
 # --- Tab 3: Plot stats---
 with tab3:

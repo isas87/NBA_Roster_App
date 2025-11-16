@@ -1,16 +1,22 @@
 import pandas as pd
-import numpy as np
 from pulp import LpProblem, LpVariable, LpMaximize, LpStatus, value, lpSum
 
-
-def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
+def optimize_nba_roster(df: pd.DataFrame, days, budget, obj_var, starting_roster: list = None) -> pd.DataFrame:
     """
     Selects an optimal 10-player NBA roster subject to cost, position, and
     complex daily playing constraints, maximizing total predicted points.
 
+    Can optionally take a starting roster and optimize it by allowing only
+    a limited number of changes (max 2).
+
     Args:
         df: DataFrame where the index contains the player name, and columns include
             'player_id', 'position', 'cost', 'points', and daily columns (e.g., 'Mon', 'Tue', ...).
+        days: List of strings representing the days to optimize for.
+        budget: Integer or float representing the salary cap.
+        starting_roster: Optional list of player names (matching the DataFrame index)
+                         representing the current team. If provided, the optimizer
+                         will retain at least 8 of these players (max 2 changes).
 
     Returns:
         DataFrame containing the 10 selected players, including their names, or an empty DataFrame
@@ -42,7 +48,7 @@ def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
 
     # --- 2. Objective Function (Maximize Total Predicted Points) ---
     # Objective 5 is prioritized: Maximize the total predicted points for the week.
-    prob += lpSum([df.loc[p, 'fg_pts'] * x[p] for p in players]), "Total_Predicted_Points"
+    prob += lpSum([df.loc[p, obj_var] * x[p] for p in players]), "Total_Predicted_Points"
 
     # --- 3. Hard Constraints ---
 
@@ -54,9 +60,23 @@ def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
     prob += lpSum([x[p] for p in fc_indices]) == 5, "C_FC_Count"
 
     # Constraint 3: Max Cost (Sum of costs <= 100)
-    prob += lpSum([df.loc[p, 'current_cost'] * x[p] for p in players]) <= 100, "C_Total_Cost"
+    prob += lpSum([df.loc[p, 'current_cost'] * x[p] for p in players]) <= budget, "C_Total_Cost"
 
-    # --- 4. Daily Position Constraint (3/2 OR 2/3) ---
+    # --- 4. Roster Continuity Constraint (New) ---
+    if starting_roster:
+        # Map names to the current DataFrame indices
+        # We use the 'player_name' column which holds the original index values
+        start_indices = df[df['player_name'].isin(starting_roster)].index.tolist()
+
+        if len(start_indices) < len(starting_roster):
+            missing = set(starting_roster) - set(df['player_name'])
+            print(f"Warning: {len(missing)} players from starting roster not found in data: {missing}")
+
+        # Constraint: Keep at least 8 players from the starting set (Max 2 changes)
+        # Sum(selected players who were in start_indices) >= 8
+        prob += lpSum([x[p] for p in start_indices]) >= 1, "C_Max_2_Changes"
+
+    # --- 5. Daily Position Constraint (3/2 OR 2/3) ---
 
     M = 5  # Big M constant, must be larger than the max count (3)
 
@@ -104,14 +124,14 @@ def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
         prob += 3 - fc_playing_count <= M * (alpha[day] + (1 - beta[day])), f"C_Day_{day}_FC_3_Upper"
         prob += fc_playing_count - 3 <= M * (alpha[day] + (1 - beta[day])), f"C_Day_{day}_FC_3_Lower"
 
-    # --- 5. Solve the Problem ---
+    # --- 6. Solve the Problem ---
     try:
         prob.solve()
     except Exception as e:
         print(f"PuLP solver error: {e}")
         return pd.DataFrame()
 
-    # --- 6. Extract Results ---
+    # --- 7. Extract Results ---
     if LpStatus[prob.status] == "Optimal":
         selected_players = [i for i in players if value(x[i]) == 1.0]
 
@@ -127,41 +147,14 @@ def optimize_nba_roster(df: pd.DataFrame, days) -> pd.DataFrame:
 
         print(f"Optimization Status: Optimal (Max Points: {value(prob.objective):.2f})")
         print(f"Total Cost of Roster: {result_df['current_cost'].sum()}")
-        # print(f"Roster size: {len(result_df)} (BC: {bc_count_final}, FC: {fc_count_final})")
-        return result_df[output_cols]
+
+        # Determine which columns to return
+        # Ensure we return columns relevant to the user + days
+        base_cols = ['player_id', 'player_name', 'position', 'current_cost', 'fg_pts']
+        available_cols = [c for c in base_cols + days if c in result_df.columns]
+
+        return result_df[available_cols]
     else:
         print(f"Optimization Status: {LpStatus[prob.status]}")
         print("No solution found that satisfies all the strict constraints.")
         return pd.DataFrame()
-
-
-def run_optimization(budget, week_start, num_weeks, df_rank):
-    len = week_start + num_weeks - 1
-
-    # Generate the list of column names based on the start and end range
-    week_columns = [
-        f'{i}_{j}'
-        for i in range(week_start, len + 1)
-        for j in range(1, 7)
-    ]
-
-    df_rank['games_available'] = df_rank[week_columns].sum(axis=1)
-
-    print("--- Starting Optimization ---")
-    optimized_roster_df = optimize_nba_roster(df_rank, week_columns)
-
-    if not optimized_roster_df.empty:
-        print("\n--- Optimized Roster ---")
-        print(optimized_roster_df)
-
-        # Verify daily constraints on the optimal roster
-        print("\n--- Daily Split Verification ---")
-        for day in week_columns:
-            bc_count = optimized_roster_df[
-                (optimized_roster_df['position'] == 'Backcourt') & (optimized_roster_df[day] == 1)].shape[0]
-            fc_count = optimized_roster_df[
-                (optimized_roster_df['position'] == 'Frontcourt') & (optimized_roster_df[day] == 1)].shape[0]
-            total_count = bc_count + fc_count
-            status = "OK (5 total, 3/2 or 2/3 split)" if total_count == 5 and ((bc_count == 3 and fc_count == 2) or (
-                        bc_count == 2 and fc_count == 3)) else "N/A (Total playing != 5)" if total_count != 0 else "N/A (No players playing)"
-            print(f"{day}: BC={bc_count}, FC={fc_count}, Total={total_count} -> {status}")
