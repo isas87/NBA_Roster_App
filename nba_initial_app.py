@@ -138,7 +138,7 @@ with tab2:
     col1, col2, col3 = st.columns(3)
     with col1:
         week_start = st.number_input(
-            "Week Start", min_value=1, max_value=25, value=None, step=1, placeholder = "Type a week..."
+            "Week Start", min_value=1, max_value=25, value=1, step=1, placeholder = "Type a week..."
         )
 
     with col2:

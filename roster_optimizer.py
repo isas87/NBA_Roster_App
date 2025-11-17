@@ -74,7 +74,7 @@ def optimize_nba_roster(df: pd.DataFrame, days, budget, obj_var, starting_roster
 
         # Constraint: Keep at least 8 players from the starting set (Max 2 changes)
         # Sum(selected players who were in start_indices) >= 8
-        prob += lpSum([x[p] for p in start_indices]) >= 1, "C_Max_2_Changes"
+        prob += lpSum([x[p] for p in start_indices]) >= 8, "C_Max_2_Changes"
 
     # --- 5. Daily Position Constraint (3/2 OR 2/3) ---
 
