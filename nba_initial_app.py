@@ -2,7 +2,7 @@
 import pandas as pd
 from data_processing import join_dataframes, calculate_z_scores, merge_dataframes
 from plots_for_app import plot_z_score_comparison
-from roster_optimizer import optimize_nba_roster
+from roster_optimizer import *
 import streamlit as st
 
 # Load required dataframes #
@@ -132,8 +132,6 @@ with tab2:
 
     max_games = df_raw['games_played'].max()
     budget = 100
-    # week_start = 4
-    # num_weeks = 1
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -146,37 +144,42 @@ with tab2:
             "# Weeks", value=1, placeholder="Type length of projection..."
         )
 
+    starting_r = df_raw.loc[df_raw['in_current_roster'] == 1, 'player_name'].tolist()
     week_len = week_start + num_weeks - 1
     week_columns = [
         f'{i}_{j}'
         for i in range(week_start, week_len + 1)
-        for j in range(1, 7)
+        for j in range(1, 8)
     ]
 
-    today = pd.Timestamp.today().normalize()
-    date_plus = today + pd.Timedelta(weeks=num_weeks)
-    days_until_sunday = (6 - date_plus.weekday() + 7) % 7  # In pandas: Monday=0, ..., Sunday=6
-    days_until_sunday = 7 if days_until_sunday == 0 else days_until_sunday
-    final_date = date_plus + pd.Timedelta(days=days_until_sunday)
-    # starting = df_raw.loc[df_raw['in_current_roster'] == 1, 'player_name'].tolist()
-    starting = ['Nikola Jokic', 'Victor Wembanyama', 'Shai Gilgeous-Alexander', 'Ryan Rollins', 'Kon Knueppel',
-                'Jeremiah Fears', 'Ryan Kalkbrenner', 'Collin Gillespie', 'Neemias Queta', 'Mouhamed Gueye']
+    # starting = ['Nikola Jokic', 'Victor Wembanyama', 'Shai Gilgeous-Alexander', 'Ryan Rollins', 'Kon Knueppel',
+    #             'Jeremiah Fears', 'Ryan Kalkbrenner', 'Collin Gillespie', 'Neemias Queta', 'Mouhamed Gueye']
 
-    df_filter = fantasy_rankings[
-        pd.to_datetime(fantasy_rankings['when_back']) < final_date]  # exclude those that are not available
-    df_filter = df_filter[df_filter['is_out'] < 2]  # exclude those that won't play
-    df_filter = df_filter[df_filter['games_played'] / max_games > .5]
-    df_filter = df_filter[
-        ~((df_filter['rank_pts'] > 250) | (df_filter['rank_ppc'] > 250) | (df_filter['rank_score'] > 250))]
-
-    df_filter['games_available'] = df_filter[week_columns].sum(axis=1)
+    df_filter = pre_select_options(df=fantasy_rankings,
+                                   n_weeks=num_weeks,
+                                   week_start=week_start,
+                                   starting_roster=starting_r,
+                                   days = week_columns)
 
     with col3:
         # Button logic: When clicked, run roster optimization and update session state
         if st.button("Run Roster Optimization", type="primary"):
             st.info("--- Starting Optimization ---")
+
             # Call the optimization function
-            optimized_roster_df = optimize_nba_roster(df_filter, week_columns, budget, 'fg_pts', starting)
+            optimized_roster_df = optimize_roster_multiweek(
+                budget=budget,
+                starting_roster=starting_r,
+                df=df_filter,
+                start_week=week_start,
+                num_weeks=num_weeks,
+                days=week_columns,
+                obj_var='fg_pts',
+                max_swaps=2,
+                verbose=True
+            )
+            # optimized_roster_df = optimize_nba_roster(df_filter, week_columns, budget, 'fg_pts', starting)
+
             if 'optimized_roster' not in st.session_state:
                 st.session_state.optimized_roster = optimized_roster_df
 
