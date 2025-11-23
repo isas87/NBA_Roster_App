@@ -6,7 +6,11 @@ from data_loading import *
 import streamlit as st
 
 @st.cache_data
-def pre_select_options(df: pd.DataFrame, n_weeks: int, week_start: int, starting_roster: List[str],
+def pre_select_options(df: pd.DataFrame,
+                       n_weeks: int,
+                       min_rank_pts: int,
+                       min_rank_scr: int,
+                       starting_roster: List[str],
                        days:List[str]) -> pd.DataFrame:
 
     today = pd.Timestamp.today().normalize()
@@ -17,13 +21,12 @@ def pre_select_options(df: pd.DataFrame, n_weeks: int, week_start: int, starting
 
     max_games = df['games_played'].max()
 
-
     df_filter = df[pd.to_datetime(df['when_back']) < final_date]  # exclude those that are not available
     df_filter = df_filter[df_filter['is_out'] < 2]  # exclude those that won't play for sure
     df_filter = df_filter[pd.to_datetime(df_filter['when_back']) < today]  # exclude those that won't be available
     df_filter = df_filter[df_filter['games_played'] / max_games > .7]
     df_filter = df_filter[
-        ~((df_filter['rank_pts'] > 150) | (df_filter['rank_ppc'] > 150) | (df_filter['rank_score'] > 100))]
+        ~((df_filter['rank_pts'] > min_rank_pts) | (df_filter['rank_ppc'] > 200) | (df_filter['rank_score'] > min_rank_scr))]
 
     df_starting = df[df.index.isin(starting_roster)]  # Ensure the starting roster is in df_filter
 
@@ -31,11 +34,12 @@ def pre_select_options(df: pd.DataFrame, n_weeks: int, week_start: int, starting
     df_combined = df_combined.loc[~df_combined.index.duplicated(keep='first'), :]
     df_combined['games_available'] = df_combined[days].sum(axis=1)
 
-    index_col_name = df_filter.index.name if df_filter.index.name is not None else 'index'
-    df_combined = df_combined.reset_index().rename(columns={index_col_name: 'player_name'}).copy()
+    # index_col_name = df_filter.index.name if df_filter.index.name is not None else 'index'
+    # df_combined = df_combined.reset_index().rename(columns={index_col_name: 'player_name'}).copy()
 
     return df_combined
 
+@st.cache_data
 def get_week_days(days: List[str], week_num: int) -> List[str]:
     """
     Extract day columns for a specific week.
@@ -50,6 +54,7 @@ def get_week_days(days: List[str], week_num: int) -> List[str]:
     week_prefix = f"{week_num}_"
     return [day for day in days if day.startswith(week_prefix)]
 
+@st.cache_data
 def optimize_daily_lineup(roster_players: List[str], df: pd.DataFrame,
                           day_col: str, obj_var: str) -> Dict:
     """
@@ -125,6 +130,7 @@ def optimize_daily_lineup(roster_players: List[str], df: pd.DataFrame,
         'config': config
     }
 
+@st.cache_data
 def evaluate_roster_week(roster_players: List[str], df: pd.DataFrame,
                          week_days: List[str], obj_var: str) -> Dict:
     """
@@ -153,6 +159,7 @@ def evaluate_roster_week(roster_players: List[str], df: pd.DataFrame,
         'roster': roster_players
     }
 
+@st.cache_data
 def generate_roster_swaps(starting_roster: List[str], df: pd.DataFrame,
                           max_swaps: int, budget: float) -> List[List[str]]:
     """
@@ -205,7 +212,7 @@ def generate_roster_swaps(starting_roster: List[str], df: pd.DataFrame,
 
     return valid_rosters
 
-
+@st.cache_data
 def optimize_roster_week(budget: float, starting_roster: List[str], df: pd.DataFrame,
                          week_days: List[str], obj_var: str = 'fg_pts',
                          max_swaps: int = 2, verbose: bool = True) -> Dict:
@@ -230,6 +237,7 @@ def optimize_roster_week(budget: float, starting_roster: List[str], df: pd.DataF
 
     # Generate all valid roster combinations
     valid_rosters = generate_roster_swaps(starting_roster, df, max_swaps, budget)
+    st.info(f"Evaluating {len(valid_rosters)} valid roster combinations...")
 
     if verbose:
         print(f"Evaluating {len(valid_rosters)} valid roster combinations...")
@@ -261,6 +269,7 @@ def optimize_roster_week(budget: float, starting_roster: List[str], df: pd.DataF
         'final_cost': df[df['player_name'].isin(best_roster)]['current_cost'].sum()
     }
 
+@st.cache_data
 def optimize_roster_multiweek(budget: float, starting_roster: List[str],
                               df: pd.DataFrame, start_week: int, num_weeks: int,
                               days: List[str], obj_var: str = 'fg_pts',
@@ -378,7 +387,8 @@ def optimize_roster_multiweek(budget: float, starting_roster: List[str],
         'num_weeks': num_weeks
     }
 
-def get_detailed_report(result: Dict, df: pd.DataFrame, obj_var: str = 'fg_pts') -> pd.DataFrame:
+@st.cache_data
+def get_detailed_report(result: Dict, df: pd.DataFrame, obj_var: str = 'fg_pts'):
     """
     Generate a detailed report DataFrame from optimization results.
 
@@ -478,4 +488,9 @@ def get_detailed_report(result: Dict, df: pd.DataFrame, obj_var: str = 'fg_pts')
                 'points': day_data['total_points']
             })
 
-    return pd.DataFrame(rows)
+    df_rows = pd.DataFrame(rows)
+    df_rows['week_points'] = df_rows.points.sum()
+    df_lineup = df_rows[['week', 'day', 'lineup_config', 'players_active', 'backcourt_active', 'frontcourt_active', 'points']]
+    changes = df_rows[['week', 'num_swaps', 'players_removed', 'players_added', 'swap_details', 'week_points']]
+
+    return df_lineup, changes

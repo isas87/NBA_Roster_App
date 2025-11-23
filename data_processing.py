@@ -94,4 +94,7 @@ def calculate_z_scores(df_data, stats_cols, cost_col, fgp_col):
     df_analysis = df_analysis.sort_values(by='current_cost', ascending=True)
     df_analysis['rank_cost'] = np.arange(1, len(df_analysis) + 1)
 
+    index_col_name = df_analysis.index.name if df_analysis.index.name is not None else 'index'
+    df_analysis= df_analysis.reset_index().rename(columns={index_col_name: 'player_name'}).copy()
+
     return df_analysis, z_cols

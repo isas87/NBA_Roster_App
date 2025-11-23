@@ -1,5 +1,7 @@
 # Import the data processing functions from the separate file
 import pandas as pd
+from datetime import datetime
+import time
 from data_processing import join_dataframes, calculate_z_scores, merge_dataframes
 from plots_for_app import plot_z_score_comparison
 from roster_optimizer import *
@@ -27,7 +29,8 @@ st.markdown(
 tab1, tab2, tab3 = st.tabs(["📊 Statistics", "⚛ Roster Simulator", "📈 Player Analysis"])
 
 # st.session_state.historical_data = []
-st.session_state.report = pd.DataFrame()
+st.session_state.result_report = pd.DataFrame()
+st.session_state.optimized_roster = pd.DataFrame()
 
 # --- Tab 1: Season Statistics ---
 with tab1:
@@ -98,11 +101,12 @@ with tab1:
 
     # Display the final ranking table
     tab1.subheader("Full Fantasy Ranking Table")
-    display_cols = TEAM_COL + COST_COL + FGP_COL + ['pts_per_cost'] + ['composite_Zscore'] + z_cols + ['cost_Zscore']
+    display_cols = ['player_name'] + TEAM_COL + COST_COL + FGP_COL + ['pts_per_cost'] + ['composite_Zscore'] + z_cols + ['cost_Zscore']
     tab1.dataframe(
         fantasy_rankings[display_cols].style.background_gradient(cmap='RdYlGn', subset=['pts_per_cost','composite_Zscore']),
         use_container_width=True,
         column_config={
+            'player_name': 'Player',
             "team": "Team",
             "current_cost": st.column_config.NumberColumn(
                 "Cost",
@@ -136,7 +140,7 @@ with tab2:
     max_games = df_raw['games_played'].max()
     budget = 100
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         week_start = st.number_input(
             "Week Start", min_value=1, max_value=25, value=1, step=1, placeholder = "Type a week..."
@@ -155,71 +159,77 @@ with tab2:
         for j in range(1, 8)
     ]
 
-    # starting = ['Nikola Jokic', 'Victor Wembanyama', 'Shai Gilgeous-Alexander', 'Ryan Rollins', 'Kon Knueppel',
-    #             'Jeremiah Fears', 'Ryan Kalkbrenner', 'Collin Gillespie', 'Neemias Queta', 'Mouhamed Gueye']
+    with col3:
+        min_pts_ = st.number_input(
+            "Min Rank FGP",
+            value=200, placeholder="Min ranking based on FG points"
+        )
+
+    with col4:
+        min_score_ = st.number_input(
+            "Min Rank Score",
+            value=200, placeholder="Min ranking based on Score"
+        )
 
     df_filter = pre_select_options(df=fantasy_rankings,
                                    n_weeks=num_weeks,
-                                   week_start=week_start,
+                                   min_rank_pts=min_pts_,
+                                   min_rank_scr=min_score_,
                                    starting_roster=starting_r,
                                    days = week_columns)
 
-    with col3:
-        # Button logic: When clicked, run roster optimization and update session state
-        if st.button("Run Roster Optimization", type="primary"):
-            st.info("--- Starting Optimization ---")
+    # Button logic: When clicked, run roster optimization and update session state
+    if st.button("Run Roster Optimization", type="primary"):
+        start = datetime.now()
 
-            # Call the optimization function
-            optimized_roster_df = optimize_roster_multiweek(
-                budget=budget,
-                starting_roster=starting_r,
-                df=df_filter,
-                start_week=week_start,
-                num_weeks=num_weeks,
-                days=week_columns,
-                obj_var='fg_pts',
-                max_swaps=2,
-                verbose=True
+        st.info("--- Starting Optimization ---", icon="ℹ️"
+                # "Start time:", start.strftime("%Y-%m-%d %H:%M")
+                )
+        st.write("Start time:", start.strftime("%Y-%m-%d %H:%M"))
+
+        # Call the optimization function
+        optimized_roster_df = optimize_roster_multiweek(
+            budget=budget,
+            starting_roster=starting_r,
+            df=df_filter,
+            start_week=week_start,
+            num_weeks=num_weeks,
+            days=week_columns,
+            obj_var='fg_pts',
+            max_swaps=2,
+            verbose=True
             )
-            report = get_detailed_report(optimized_roster_df, df_filter)
 
-            # st.session_state.optimized_roster = optimized_roster_df
-            st.session_state.result_report = report
-            st.info("--- Optimization Finished ---")
+        lineup,changes  = get_detailed_report(optimized_roster_df, df_filter)
 
-        df_report = st.session_state.result_report
-        df_roster = st.session_state.optimized_roster
+        st.session_state.optimized_roster = lineup
+        st.session_state.result_report = changes
+        st.info("--- Optimization Finished ---")
+
+    df_roster = st.session_state.optimized_roster
+    df_report = st.session_state.result_report
 
     if not df_report.empty:
-        st.subheader("Optimized Roster")
-        st.dataframe(df_report,use_container_width=True)
 
-        # if not df_roster.empty:
-        #     # Verify daily constraints on the optimal roster
-        #     for day in week_columns:
-        #         bc_count = df_roster[
-        #             (df_roster['position'] == 'Backcourt') & (df_roster[day] == 1)].shape[0]
-        #         fc_count = df_roster[
-        #             (df_roster['position'] == 'Frontcourt') & (df_roster[day] == 1)].shape[0]
-        #         total_count = bc_count + fc_count
-        #         status = "OK (5 total, 3/2 or 2/3 split)" if total_count == 5 and (
-        #                     (bc_count == 3 and fc_count == 2) or (
-        #                     bc_count == 2 and fc_count == 3)) else "N/A (Total playing != 5)" if total_count != 0 else "N/A (No players playing)"
-        #             # print(f"{day}: BC={bc_count}, FC={fc_count}, Total={total_count} -> {status}")
-        #     st.success(f"Roster Optimization Status: {status}")
+        col5, col6= st.columns(2)
 
-        # if df_roster.empty:
-        #     st.info("--- Roster did not run ---")
-        # else:
-        #     st.subheader("Optimized Roster")
-        #     # Roster cost
-        #     check_cost = df_roster['current_cost'].sum()
-        #     st.markdown(f"**Current Cost:** {check_cost}")
-        #
-        #     st.dataframe(
-        #         df_roster,
-        #         use_container_width=True
-        #     )
+        with col5:
+            st.subheader("Optimized Roster - Summary")
+        with col6:
+            st.subheader("Optimized Roster Lineup")
+            st.dataframe(df_roster,
+                         use_container_width=True,
+                         width='stretch',
+                         column_config = {
+                            'week': 'Week',
+                            'day': 'Day',
+                            'lineup_config': 'Line up',
+                            'players_active': 'Active Players',
+                            'backcourt_active': 'Backcourt Active',
+                            'frontcourt_active': 'Frontcourt Active',
+                            'points':st.column_config.NumberColumn('FG Points', format="%.2f")
+                }
+            )
 
 # --- Tab 3: Plot stats---
 with tab3:
