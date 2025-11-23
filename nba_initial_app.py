@@ -24,7 +24,10 @@ st.title("🏀 NBA Fantasy Analysis 🏀")
 st.markdown(
     "This tool uses **Season-to-Date Averages** scraped directly from Basketball Reference Page to calculate player value.")
 # st.divider()
-tab1, tab2, tab3 = st.tabs(["🗃 Statistics", "Roster Simulator", "Player Analysis"])
+tab1, tab2, tab3 = st.tabs(["📊 Statistics", "⚛ Roster Simulator", "📈 Player Analysis"])
+
+# st.session_state.historical_data = []
+st.session_state.report = pd.DataFrame()
 
 # --- Tab 1: Season Statistics ---
 with tab1:
@@ -178,39 +181,45 @@ with tab2:
                 max_swaps=2,
                 verbose=True
             )
-            # optimized_roster_df = optimize_nba_roster(df_filter, week_columns, budget, 'fg_pts', starting)
+            report = get_detailed_report(optimized_roster_df, df_filter)
 
-            if 'optimized_roster' not in st.session_state:
-                st.session_state.optimized_roster = optimized_roster_df
+            # st.session_state.optimized_roster = optimized_roster_df
+            st.session_state.result_report = report
+            st.info("--- Optimization Finished ---")
 
+        df_report = st.session_state.result_report
         df_roster = st.session_state.optimized_roster
 
-        if not df_roster.empty:
-            # Verify daily constraints on the optimal roster
-            for day in week_columns:
-                bc_count = df_roster[
-                    (df_roster['position'] == 'Backcourt') & (df_roster[day] == 1)].shape[0]
-                fc_count = df_roster[
-                    (df_roster['position'] == 'Frontcourt') & (df_roster[day] == 1)].shape[0]
-                total_count = bc_count + fc_count
-                status = "OK (5 total, 3/2 or 2/3 split)" if total_count == 5 and (
-                            (bc_count == 3 and fc_count == 2) or (
-                            bc_count == 2 and fc_count == 3)) else "N/A (Total playing != 5)" if total_count != 0 else "N/A (No players playing)"
-                    # print(f"{day}: BC={bc_count}, FC={fc_count}, Total={total_count} -> {status}")
-            st.success(f"Roster Optimization Status: {status}")
-
-    if df_roster.empty:
-        st.info("--- Roster did not run ---")
-    else:
+    if not df_report.empty:
         st.subheader("Optimized Roster")
-        # Roster cost
-        check_cost = df_roster['current_cost'].sum()
-        st.markdown(f"**Current Cost:** {check_cost}")
+        st.dataframe(df_report,use_container_width=True)
 
-        st.dataframe(
-            df_roster,
-            use_container_width=True
-        )
+        # if not df_roster.empty:
+        #     # Verify daily constraints on the optimal roster
+        #     for day in week_columns:
+        #         bc_count = df_roster[
+        #             (df_roster['position'] == 'Backcourt') & (df_roster[day] == 1)].shape[0]
+        #         fc_count = df_roster[
+        #             (df_roster['position'] == 'Frontcourt') & (df_roster[day] == 1)].shape[0]
+        #         total_count = bc_count + fc_count
+        #         status = "OK (5 total, 3/2 or 2/3 split)" if total_count == 5 and (
+        #                     (bc_count == 3 and fc_count == 2) or (
+        #                     bc_count == 2 and fc_count == 3)) else "N/A (Total playing != 5)" if total_count != 0 else "N/A (No players playing)"
+        #             # print(f"{day}: BC={bc_count}, FC={fc_count}, Total={total_count} -> {status}")
+        #     st.success(f"Roster Optimization Status: {status}")
+
+        # if df_roster.empty:
+        #     st.info("--- Roster did not run ---")
+        # else:
+        #     st.subheader("Optimized Roster")
+        #     # Roster cost
+        #     check_cost = df_roster['current_cost'].sum()
+        #     st.markdown(f"**Current Cost:** {check_cost}")
+        #
+        #     st.dataframe(
+        #         df_roster,
+        #         use_container_width=True
+        #     )
 
 # --- Tab 3: Plot stats---
 with tab3:
