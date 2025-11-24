@@ -215,6 +215,25 @@ with tab2:
 
         with col5:
             st.subheader("Optimized Roster - Summary")
+            st.write("Week:", changes['week'][0])
+            st.write("No Swaps:", changes['num_swaps'][0])
+            st.write("Removed Players: -->", changes['players_removed'][0])
+            st.write("Added Players: <--", changes['players_added'][0])
+            st.write("Details:", changes['swap_details'][0])
+            st.write("Week Points:", changes['week_points'][0])
+
+
+            # st.dataframe(df_report,
+            #              use_container_width=True,
+            #              width='stretch',
+            #              column_config= {
+            #                  'week': 'Week',
+            #                  'num_swaps': 'Num Swaps',
+            #                  'players_removed': 'Removed Players',
+            #                  'players_added': 'Added Players',
+            #                  'swap_details': 'Swap Details',
+            #                  'week_points': 'Week Points'
+            #              })
         with col6:
             st.subheader("Optimized Roster Lineup")
             st.dataframe(df_roster,

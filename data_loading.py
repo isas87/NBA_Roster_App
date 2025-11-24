@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 @st.cache_data
 def scrape_current_data():
@@ -63,6 +64,8 @@ def scrape_current_data():
     df['position'] = df['position'].apply(
         lambda x: 'Frontcourt' if x in ['C', 'PF', 'SF', 'C-PF', 'PF-C', 'SF-PF'] else 'Backcourt'
     )
+
+    df['position'] = np.where(df['player_name'] == 'Russell Westbrook', 'Backcourt', df['position'] )
 
     # 4. Create main stat column (fantasy points)
     df['fg_pts'] = df['pts'] + df['trb'] + 2*df['ast'] + 3*df['blk'] + 3*df['stl']

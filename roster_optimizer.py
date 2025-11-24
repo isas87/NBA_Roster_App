@@ -28,7 +28,7 @@ def pre_select_options(df: pd.DataFrame,
     df_filter = df_filter[
         ~((df_filter['rank_pts'] > min_rank_pts) | (df_filter['rank_ppc'] > 200) | (df_filter['rank_score'] > min_rank_scr))]
 
-    df_starting = df[df.index.isin(starting_roster)]  # Ensure the starting roster is in df_filter
+    df_starting = df[df.player_name.isin(starting_roster)]  # Ensure the starting roster is in df_filter
 
     df_combined = pd.concat([df_filter, df_starting])  # , ignore_index = True)
     df_combined = df_combined.loc[~df_combined.index.duplicated(keep='first'), :]
