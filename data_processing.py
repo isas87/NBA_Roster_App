@@ -98,3 +98,20 @@ def calculate_z_scores(df_data, stats_cols, cost_col, fgp_col):
     df_analysis= df_analysis.reset_index().rename(columns={index_col_name: 'player_name'}).copy()
 
     return df_analysis, z_cols
+
+@st.cache_data
+# Calculate rolling averages
+def calculate_rolling_stats(df, player_name, window=5):
+    """Calculate rolling averages for a specific player"""
+    player_df = df[df['player_name'] == player_name].sort_values('etl_run_date')
+
+    metrics = ['assists', 'rebounds', 'points', 'blocks']
+    for metric in metrics:
+        player_df[f'{metric}_rolling_avg'] = player_df[metric].rolling(window=window, min_periods=1).mean()
+
+    return player_df
+
+def calculate_efficiency(df):
+    """Calculate simple efficiency metric"""
+    df['efficiency'] = (df['points'] + df['rebounds'] + df['assists'] + df['blocks']) / 4
+    return df

@@ -2,9 +2,10 @@
 import pandas as pd
 from datetime import datetime
 import time
-from data_processing import join_dataframes, calculate_z_scores, merge_dataframes
-from plots_for_app import plot_z_score_comparison
+from data_processing import *
 from roster_optimizer import *
+from trend_performance_plot import *
+from trend_analysis import *
 import streamlit as st
 
 # Load required dataframes #
@@ -252,17 +253,46 @@ with tab2:
 
 # --- Tab 3: Plot stats---
 with tab3:
+    st.subheader("Performance Over Time")
 
     tab3.markdown(
-        "Select players in the sidebar to visualize how their Composite Z-Scores compare against each other."
+        "Select players to visualize how their Composite Z-Scores compare against each other."
     )
 
-    top_players = fantasy_rankings.index.tolist()
+    col1, col2, col3 = st.columns(3)
 
-    player_comparison_selection = tab3.multiselect(
-        "Select players in the sidebar",
-        top_players,
-    )
+    with col1:
+    # Player selection
+        all_players = sorted(df_hist['player_name'].unique())
+        selected_players = st.multiselect(
+            "Select Players",
+            all_players,
+            default=all_players[:3] if len(all_players) >= 3 else all_players
+        )
+    with col2:
+        # Date range
+        min_date = pd.to_datetime(df_hist['etl_date']).min()
+        max_date = pd.to_datetime(df_hist['etl_date']).max()
+
+        date_range = st.date_input(
+            "Date Range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date
+        )
+
+    with col3:
+        metric = st.selectbox(
+            "Select Metric",
+            ['points', 'assists', 'rebounds', 'blocks']
+        )
+
+    # top_players = fantasy_rankings.index.tolist()
+
+    # player_comparison_selection = tab3.multiselect(
+    #     "Select players in the sidebar",
+    #     top_players,
+    # )
 
     #
     # player_comparison_selection = st.sidebar.multiselect(
@@ -271,12 +301,12 @@ with tab3:
     #     default=top_players[:4]
     # )
 
-    comparison_fig = plot_z_score_comparison(fantasy_rankings, player_comparison_selection)
-
-    if comparison_fig:
-        st.pyplot(comparison_fig)
-    else:
-        st.info("Select players in the sidebar to generate a comparison chart.")
+    # comparison_fig = plot_z_score_comparison(fantasy_rankings, player_comparison_selection)
+    #
+    # if comparison_fig:
+    #     st.pyplot(comparison_fig)
+    # else:
+    #     st.info("Select players in the sidebar to generate a comparison chart.")
 
 st.markdown("---")
 st.caption("Application built for NBA data analysts using Streamlit and live-scraped data.")

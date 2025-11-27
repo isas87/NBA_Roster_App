@@ -1,8 +1,22 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 
-# --- 1. Comparison Plotting Function ---
+
+# Compare players at specific time points
+def compare_players_snapshot(df, players, date=None):
+    """Compare multiple players at a specific snapshot"""
+    if date is None:
+        date = df['etl_date'].max()
+
+    comparison_df = df[
+        (df['player_name'].isin(players)) &
+        (df['etl_date'] == date)
+        ][['player_name', 'fg_pts','pts', 'ast', 'trb', 'blk', 'stl']]
+
+    return comparison_df
 
 def plot_z_score_comparison(df_rankings, players):
     """
