@@ -301,7 +301,6 @@ with tab3:
     #     default=top_players[:4]
     # )
 
-    # comparison_fig = plot_z_score_comparison(fantasy_rankings, player_comparison_selection)
     #
     # if comparison_fig:
     #     st.pyplot(comparison_fig)

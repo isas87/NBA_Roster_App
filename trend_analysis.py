@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 
-
 # Analyze performance trends over time
 def calculate_trend(df, player_name, metric):
     """Calculate linear trend for a player's metric over time"""
