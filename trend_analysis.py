@@ -22,7 +22,6 @@ def calculate_trend(df, player_name, metric):
         'trend': 'improving' if slope > 0 else 'declining'
     }
 
-
 # Compare multiple players over time
 def compare_players_timeseries(df, players, metric):
     """Create comparison dataframe for multiple players"""
@@ -61,17 +60,28 @@ def get_performance_extremes(df, player_name, metric, top_n=5):
 
 
 # Calculate consistency score (coefficient of variation)
-def calculate_consistency(df, player_name):
-    """Calculate consistency score for each metric (lower is more consistent)"""
-    player_df = df[df['player_name'] == player_name]
+def calculate_consistency(df, players, metric):
 
-    consistency_scores = {}
-    metrics = ['fg_pts','pts', 'ast', 'trb', 'blk', 'stl']
+    # Handle single player name as string
+    if isinstance(players, str):
+        player_names = [players]
 
-    for metric in metrics:
+    consistency_data = []
+    # metrics = ['assists', 'rebounds', 'points', 'blocks']
+
+    for player_name in players:
+        player_df = df[df['player_name'] == player_name]
+
+        if len(player_df) == 0:
+            continue
+
+        player_scores = {'player_name': player_name}
+
         mean_val = player_df[metric].mean()
         std_val = player_df[metric].std()
         cv = (std_val / mean_val) * 100 if mean_val > 0 else 0
-        consistency_scores[metric] = cv
+        player_scores[f'{metric}_consistency'] = cv
 
-    return consistency_scores
+        consistency_data.append(player_scores)
+
+    return pd.DataFrame(consistency_data)

@@ -252,7 +252,7 @@ with tab2:
             )
 
 # --- Tab 3: Plot stats---
-with tab3:
+with (tab3):
     st.subheader("Performance Over Time")
 
     tab3.markdown(
@@ -284,9 +284,74 @@ with tab3:
     with col3:
         metric = st.selectbox(
             "Select Metric",
-            ['points', 'assists', 'rebounds', 'blocks']
+            ['points', 'assists', 'rebounds', 'blocks', 'steals' , 'minutes played', 'fantasy points']
         )
 
+    # Filter data
+    if len(date_range) == 2:
+        mask = (
+                (df_hist['player_name'].isin(selected_players)) &
+                (pd.to_datetime(df_hist['etl_date']) >= pd.to_datetime(date_range[0])) &
+                (pd.to_datetime(df_hist['etl_date']) <= pd.to_datetime(date_range[1]))
+        )
+        filtered_df = df_hist[mask]
+    else:
+        filtered_df = df_hist[df_hist['player_name'].isin(selected_players)]
+
+    if filtered_df.empty:
+        st.warning("No data available for selected filters")
+    else:
+        # Tabs for different analyses
+        c1, c2, c3, c4 = st.columns(4)
+        # st.tabs([
+        #     "📊 Overview",
+        #     "📈 Time Series",
+        #     "🔄 Player Comparison",
+        #     "📉 Statistics"
+        # ])
+    if metric == 'points':
+        metric_name = 'pts'
+    elif metric == 'assists':
+        metric_name = 'ast'
+    elif metric == 'rebounds':
+        metric_name = 'trb'
+    elif metric == 'blocks':
+        metric_name = 'blk'
+    elif metric == 'steals':
+        metric_name = 'stl'
+    elif metric == 'minutes played':
+        metric_name = 'mp'
+    elif metric == 'fantasy points':
+        metric = 'fg_pts'
+
+    with c1:
+        st.subheader("📈Performance Over Time")
+
+        # Line chart
+        fig=px.line(
+            filtered_df,
+            x='etl_date',
+            y=metric_name,
+            color='player_name',
+            markers=True,
+            title=f'Avg. {metric.title()} Over Time',
+            labels={'etl_date': 'Date', metric: metric.title()}
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        st.subheader("📊 Consistency Comparison")
+
+        df_c = calculate_consistency(filtered_df, selected_players, metric_name)
+
+        fig_bar = px.bar(
+            df_c,
+            x='player_name',
+            y=metric_name+'_consistency',
+            color='player_name',
+            title=f'Consistency Comparison'
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
     # top_players = fantasy_rankings.index.tolist()
 
     # player_comparison_selection = tab3.multiselect(

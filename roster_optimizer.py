@@ -489,7 +489,7 @@ def get_detailed_report(result: Dict, df: pd.DataFrame, obj_var: str = 'fg_pts')
             })
 
     df_rows = pd.DataFrame(rows)
-    df_rows['week_points'] = df_rows.points.sum()
+    df_rows['week_points'] = df_rows.points.sum().round()
     df_lineup = df_rows[['week', 'day', 'lineup_config', 'players_active', 'backcourt_active', 'frontcourt_active', 'points']]
     changes = df_rows[['week', 'num_swaps', 'players_removed', 'players_added', 'swap_details', 'week_points']]
 
