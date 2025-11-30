@@ -111,6 +111,7 @@ def calculate_rolling_stats(df, player_name, window=5):
 
     return player_df
 
+@st.cache_data
 def calculate_efficiency(df):
     """Calculate simple efficiency metric"""
     df['efficiency'] = (df['points'] + df['rebounds'] + df['assists'] + df['blocks']) / 4

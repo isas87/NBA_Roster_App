@@ -11,7 +11,7 @@ import streamlit as st
 # Load required dataframes #
 
 # Load the newest data in the background
-df_hist = pd.read_csv('data/stats_hist.csv')
+df_hist = pd.read_csv('data/stats_hist.csv', index_col = 0 )
 df_raw = join_dataframes()
 TEAM_COL = ['team']
 FGP_COL = ['fg_pts']
@@ -46,14 +46,16 @@ with tab1:
         st.subheader("Last Historical Records")
         st.dataframe(
             st.session_state.historical_data[['player_name', 'pts', 'etl_date']].sort_values(by = ['etl_date', 'pts'], ascending= [False, False]).head(5),
-            use_container_width=True
+            use_container_width=True,
+            hide_index=True
         )
 
     with col2:
         st.subheader("Latest Data - Sample")
         st.dataframe(
             df_raw[['player_name', 'pts', 'etl_date']].sort_values(by = ['etl_date', 'pts'], ascending= [False, False]).head(5),
-            use_container_width=True
+            use_container_width=True,
+            hide_index=True
         )
 
     with col3:
@@ -63,7 +65,6 @@ with tab1:
             delta=f"+{len(df_raw)} rows pending append"
         )
 
-        # row1, row2, row3 = st.rows((1, 2, 3))
         st.markdown(
             "Use the button below to append new data to the historical.")
 
@@ -106,6 +107,7 @@ with tab1:
     tab1.dataframe(
         fantasy_rankings[display_cols].style.background_gradient(cmap='RdYlGn', subset=['pts_per_cost','composite_Zscore']),
         use_container_width=True,
+        hide_index=True,
         column_config={
             'player_name': 'Player',
             "team": "Team",
@@ -269,6 +271,7 @@ with (tab3):
             all_players,
             default=all_players[:3] if len(all_players) >= 3 else all_players
         )
+
     with col2:
         # Date range
         min_date = pd.to_datetime(df_hist['etl_date']).min()
@@ -298,17 +301,12 @@ with (tab3):
     else:
         filtered_df = df_hist[df_hist['player_name'].isin(selected_players)]
 
+    filtered_df = filtered_df.sort_values(by = ['etl_date','player_name'])
+
     if filtered_df.empty:
         st.warning("No data available for selected filters")
     else:
-        # Tabs for different analyses
-        c1, c2, c3, c4 = st.columns(4)
-        # st.tabs([
-        #     "📊 Overview",
-        #     "📈 Time Series",
-        #     "🔄 Player Comparison",
-        #     "📉 Statistics"
-        # ])
+        c1, c2 = st.columns(2)
     if metric == 'points':
         metric_name = 'pts'
     elif metric == 'assists':
@@ -320,13 +318,12 @@ with (tab3):
     elif metric == 'steals':
         metric_name = 'stl'
     elif metric == 'minutes played':
-        metric_name = 'mp'
+        metric_name = 'minutes_played'
     elif metric == 'fantasy points':
-        metric = 'fg_pts'
+        metric_name = 'fg_pts'
 
     with c1:
         st.subheader("📈Performance Over Time")
-
         # Line chart
         fig=px.line(
             filtered_df,
@@ -335,9 +332,9 @@ with (tab3):
             color='player_name',
             markers=True,
             title=f'Avg. {metric.title()} Over Time',
-            labels={'etl_date': 'Date', metric: metric.title()}
+            labels={'etl_date': 'Date', metric_name: metric.title()}
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
 
     with c2:
         st.subheader("📊 Consistency Comparison")
@@ -349,28 +346,29 @@ with (tab3):
             x='player_name',
             y=metric_name+'_consistency',
             color='player_name',
-            title=f'Consistency Comparison'
+            title=f'Avg. {metric.title()} Consistency',
+            labels={'player_name': 'Player', metric_name: metric.title()}
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
-    # top_players = fantasy_rankings.index.tolist()
+        st.plotly_chart(fig_bar)
 
-    # player_comparison_selection = tab3.multiselect(
-    #     "Select players in the sidebar",
-    #     top_players,
-    # )
+    st.subheader("📈Stats Summary")
 
-    #
-    # player_comparison_selection = st.sidebar.multiselect(
-    #     "Select Players to Compare",
-    #     options=top_players,
-    #     default=top_players[:4]
-    # )
+    df_c = calculate_trend(filtered_df, selected_players, metric_name)
 
-    #
-    # if comparison_fig:
-    #     st.pyplot(comparison_fig)
-    # else:
-    #     st.info("Select players in the sidebar to generate a comparison chart.")
+    st.dataframe(df_c,
+                 use_container_width=True,
+                 width='content',
+                 hide_index=True,
+                 column_config={
+                     'player_name': 'Player',
+                     'trend': 'Trend',
+                     'r2_value': 'R2',
+                     'p_value': 'p-Value',
+                     'slope': 'Slope Trend',
+                     'best': f'Best {metric.title()}',
+                     'worst': f'Worst {metric.title()}'
+                 }
+            )
 
 st.markdown("---")
 st.caption("Application built for NBA data analysts using Streamlit and live-scraped data.")
