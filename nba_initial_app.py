@@ -8,7 +8,11 @@ from trend_performance_plot import *
 from trend_analysis import *
 import streamlit as st
 
-# Load required dataframes #
+# Initialize session state for chat
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+if 'chatbot' not in st.session_state:
+    st.session_state.chatbot = None
 
 # Load the newest data in the background
 df_hist = pd.read_csv('data/stats_hist.csv', index_col = 0 )
@@ -27,7 +31,7 @@ st.title("🏀 NBA Fantasy Analysis 🏀")
 st.markdown(
     "This tool uses **Season-to-Date Averages** scraped directly from Basketball Reference Page to calculate player value.")
 # st.divider()
-tab1, tab2, tab3 = st.tabs(["📊 Statistics", "⚛ Roster Simulator", "📈 Player Analysis"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Statistics", "⚛ Roster Simulator", "📈 Player Analysis", "🤖 AI Assistant"])
 
 # st.session_state.historical_data = []
 st.session_state.result_report = pd.DataFrame()
@@ -143,7 +147,7 @@ with tab2:
     max_games = df_raw['games_played'].max()
     budget = 100
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         week_start = st.number_input(
             "Week Start", min_value=1, max_value=25, value=1, step=1, placeholder = "Type a week..."
@@ -174,6 +178,13 @@ with tab2:
             value=200, placeholder="Min ranking based on Score"
         )
 
+    with col5:
+        st.markdown("Check this box to run the Wildcard Model")
+
+        wc_ = st.checkbox("Wildcard Option", value=False,
+                    # key=None, help=None, on_change=None, args=None, kwargs=None, *, disabled=False,
+                    label_visibility="visible", width="content")
+
     df_filter = pre_select_options(df=fantasy_rankings,
                                    n_weeks=num_weeks,
                                    min_rank_pts=min_pts_,
@@ -199,6 +210,7 @@ with tab2:
             num_weeks=num_weeks,
             days=week_columns,
             obj_var='fg_pts',
+            wildcard=wc_,
             max_swaps=2,
             verbose=True
             )
@@ -254,7 +266,7 @@ with tab2:
             )
 
 # --- Tab 3: Plot stats---
-with (tab3):
+with tab3:
     st.subheader("Performance Over Time")
 
     tab3.markdown(
@@ -369,6 +381,43 @@ with (tab3):
                      'worst': f'Worst {metric.title()}'
                  }
             )
+
+# --- Tab 4: Chatbot---
+with tab4:
+    st.header("🤖 AI Performance Assistant")
+
+    st.markdown("""
+                Ask me anything about player performance! I can help with:
+                - Player statistics and comparisons
+                - Performance trends and improvements
+                - Recommendations for players to watch
+                - Head-to-head matchup analysis
+                """)
+
+    # Chat interface
+    st.subheader("Chat with AI Assistant")
+
+    # Display chat history
+    chat_container = st.container()
+
+    with chat_container:
+        for i, message in enumerate(st.session_state.chat_history):
+            if message['role'] == 'user':
+                st.markdown(f"**You:** {message['content']}")
+            else:
+                st.markdown(f"**AI Assistant:** {message['content']}")
+            st.markdown("---")
+
+    # Chat input
+    user_query = st.chat_input("Ask me about player performance...")
+
+    if user_query:
+        # Add user message to history
+        st.session_state.chat_history.append({
+            'role': 'user',
+            'content': user_query,
+            'timestamp': datetime.now()
+        })
 
 st.markdown("---")
 st.caption("Application built for NBA data analysts using Streamlit and live-scraped data.")
