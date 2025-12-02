@@ -11,8 +11,7 @@ def pre_select_options(df: pd.DataFrame,
                        min_rank_pts: int,
                        min_rank_scr: int,
                        starting_roster: List[str],
-                       days:List[str],
-                       wildcard:bool) -> pd.DataFrame:
+                       days:List[str]) -> pd.DataFrame:
 
     today = pd.Timestamp.today().normalize()
     date_plus = today + pd.Timedelta(weeks = n_weeks)
@@ -29,7 +28,7 @@ def pre_select_options(df: pd.DataFrame,
     df_filter = df_filter[
         ~((df_filter['rank_pts'] > min_rank_pts) | (df_filter['rank_ppc'] > 200) | (df_filter['rank_score'] > min_rank_scr))]
 
-    if wildcard:
+    if len(starting_roster) == 0:
         df_starting = pd.DataFrame()
     else:
         df_starting = df[df.player_name.isin(starting_roster)]  # Ensure the starting roster is in df_filter
@@ -38,22 +37,12 @@ def pre_select_options(df: pd.DataFrame,
     df_combined = df_combined.loc[~df_combined.index.duplicated(keep='first'), :]
     df_combined['games_available'] = df_combined[days].sum(axis=1)
 
-    # index_col_name = df_filter.index.name if df_filter.index.name is not None else 'index'
-    # df_combined = df_combined.reset_index().rename(columns={index_col_name: 'player_name'}).copy()
-
     return df_combined
 
 @st.cache_data
 def get_week_days(days: List[str], week_num: int) -> List[str]:
     """
     Extract day columns for a specific week.
-
-    Args:
-        days: List of all day columns (e.g., ['1_1', '1_2', ..., '2_1', '2_2', ...])
-        week_num: Week number to filter (1, 2, 3, ...)
-
-    Returns:
-        List of day columns for the specified week
     """
     week_prefix = f"{week_num}_"
     return [day for day in days if day.startswith(week_prefix)]
@@ -63,15 +52,6 @@ def optimize_daily_lineup(roster_players: List[str], df: pd.DataFrame,
                           day_col: str, obj_var: str) -> Dict:
     """
     Optimize the 5-player lineup for a single day from a 10-player roster.
-
-    Args:
-        roster_players: List of 10 player names in the roster
-        df: DataFrame with player data
-        day_col: Column name for the day's schedule
-        obj_var: Column name for the objective variable to maximize
-
-    Returns:
-        Dict with optimal lineup and total points
     """
     roster_df = df[df['player_name'].isin(roster_players)].copy()
 
@@ -139,15 +119,6 @@ def evaluate_roster_week(roster_players: List[str], df: pd.DataFrame,
                          week_days: List[str], obj_var: str) -> Dict:
     """
     Evaluate a roster for an entire week by optimizing daily lineups.
-
-    Args:
-        roster_players: List of 10 player names in the roster
-        df: DataFrame with player data
-        week_days: List of day columns for the week
-        obj_var: Column name for the objective variable to maximize
-
-    Returns:
-        Dict with week total points and daily breakdowns
     """
     daily_results = {}
     total_points = 0
@@ -163,106 +134,66 @@ def evaluate_roster_week(roster_players: List[str], df: pd.DataFrame,
         'roster': roster_players
     }
 
-
 @st.cache_data
-def generate_wildcard_rosters(df: pd.DataFrame, budget: float, top_n: int = 100) -> List[List[str]]:
+def generate_wild_rosters(df: pd.DataFrame, budget: float, obj_var: str, 
+                          candidates_per_pos: int = 15, max_results: int = 50) -> List[List[str]]:
     """
-    Generate candidate rosters by selecting best players from scratch (no starting roster constraint).
-    Uses a greedy + sampling approach to find high-quality rosters.
-
-    Args:
-        df: DataFrame with all player data
-        budget: Maximum total cost allowed
-        top_n: Number of top rosters to generate
-
-    Returns:
-        List of valid roster combinations (each with 5 BC + 5 FC)
+    Generate completely new rosters from scratch (Wild Mode).
+    Selects top candidates per position, creates valid budget combinations,
+    and returns the highest potential rosters for detailed evaluation.
     """
-    bc_players = df[df['position'] == 'Backcourt'].copy()
-    fc_players = df[df['position'] == 'Frontcourt'].copy()
-
+    # 1. Select top candidates to reduce search space (heuristic)
+    # We take the top N players by objective variable (e.g., points)
+    bc_candidates = df[df['position'] == 'Backcourt'].nlargest(candidates_per_pos, obj_var).copy()
+    fc_candidates = df[df['position'] == 'Frontcourt'].nlargest(candidates_per_pos, obj_var).copy()
+    
+    # 2. Pre-calculate combinations for Backcourt (5 players)
+    bc_combos = []
+    for combo in combinations(bc_candidates.itertuples(), 5):
+        cost = sum(p.current_cost for p in combo)
+        pts = sum(getattr(p, obj_var) for p in combo)
+        names = [p.player_name for p in combo]
+        # Only keep if cost is theoretically viable (leaving room for min cost FC players)
+        # Assuming min FC cost is roughly 5 * min_cost_in_pool, but checking strictly later is better
+        bc_combos.append({'names': names, 'cost': cost, 'pts': pts})
+        
+    # 3. Pre-calculate combinations for Frontcourt (5 players)
+    fc_combos = []
+    for combo in combinations(fc_candidates.itertuples(), 5):
+        cost = sum(p.current_cost for p in combo)
+        pts = sum(getattr(p, obj_var) for p in combo)
+        names = [p.player_name for p in combo]
+        fc_combos.append({'names': names, 'cost': cost, 'pts': pts})
+    
+    # Sort combos by points descending to find best options first
+    bc_combos.sort(key=lambda x: x['pts'], reverse=True)
+    fc_combos.sort(key=lambda x: x['pts'], reverse=True)
+    
     valid_rosters = []
-    seen_rosters = set()
-
-    # Strategy 1: Greedy by predicted points (multiple starting points)
-    for start_bc_idx in range(min(10, len(bc_players))):
-        for start_fc_idx in range(min(10, len(fc_players))):
-            # Sort by predicted points descending
-            bc_sorted = bc_players.sort_values('predicted_points', ascending=False)
-            fc_sorted = fc_players.sort_values('predicted_points', ascending=False)
-
-            # Try different combinations of top players
-            for bc_combo in combinations(bc_sorted.head(min(15, len(bc_sorted)))['player_name'], 5):
-                bc_cost = df[df['player_name'].isin(bc_combo)]['current_cost'].sum()
-
-                if bc_cost > budget:
-                    continue
-
-                remaining_budget = budget - bc_cost
-
-                # Find FC players that fit remaining budget
-                for fc_combo in combinations(fc_sorted.head(min(15, len(fc_sorted)))['player_name'], 5):
-                    fc_cost = df[df['player_name'].isin(fc_combo)]['current_cost'].sum()
-
-                    if fc_cost <= remaining_budget:
-                        roster = sorted(list(bc_combo) + list(fc_combo))
-                        roster_key = tuple(roster)
-
-                        if roster_key not in seen_rosters:
-                            seen_rosters.add(roster_key)
-                            valid_rosters.append(roster)
-
-                            if len(valid_rosters) >= top_n:
-                                return valid_rosters
-
-    # Strategy 2: Value-based (points per dollar)
-    if len(valid_rosters) < top_n:
-        bc_value = bc_players.copy()
-        bc_value['value'] = bc_value['fg_pts'] / bc_value['current_cost']
-        bc_value = bc_value.sort_values('value', ascending=False)
-
-        fc_value = fc_players.copy()
-        fc_value['value'] = fc_value['fg_pts'] / fc_value['current_cost']
-        fc_value = fc_value.sort_values('value', ascending=False)
-
-        for bc_combo in combinations(bc_value.head(min(12, len(bc_value)))['player_name'], 5):
-            bc_cost = df[df['player_name'].isin(bc_combo)]['current_cost'].sum()
-
-            if bc_cost > budget:
-                continue
-
-            remaining_budget = budget - bc_cost
-
-            for fc_combo in combinations(fc_value.head(min(12, len(fc_value)))['player_name'], 5):
-                fc_cost = df[df['player_name'].isin(fc_combo)]['current_cost'].sum()
-
-                if fc_cost <= remaining_budget:
-                    roster = sorted(list(bc_combo) + list(fc_combo))
-                    roster_key = tuple(roster)
-
-                    if roster_key not in seen_rosters:
-                        seen_rosters.add(roster_key)
-                        valid_rosters.append(roster)
-
-                        if len(valid_rosters) >= top_n:
-                            return valid_rosters
-
-    return valid_rosters if valid_rosters else []
+    
+    # 4. Merge BC and FC combos
+    for bc in bc_combos:
+        remaining_budget = budget - bc['cost']
+        if remaining_budget < 0:
+            continue
+            
+        for fc in fc_combos:
+            if fc['cost'] <= remaining_budget:
+                # Found a valid roster
+                full_roster = bc['names'] + fc['names']
+                valid_rosters.append(full_roster)
+                
+                # Limit the number of rosters to prevent timeouts
+                if len(valid_rosters) >= max_results:
+                    return valid_rosters
+                    
+    return valid_rosters
 
 @st.cache_data
 def generate_roster_swaps(starting_roster: List[str], df: pd.DataFrame,
                           max_swaps: int, budget: float) -> List[List[str]]:
     """
     Generate all valid roster combinations with up to max_swaps changes.
-
-    Args:
-        starting_roster: List of current 10 player names
-        df: DataFrame with all player data
-        max_swaps: Maximum number of players that can be swapped
-        budget: Maximum total cost allowed (for all 10 players in roster)
-
-    Returns:
-        List of valid roster combinations
     """
     all_players = df['player_name'].tolist()
     available_players = [p for p in all_players if p not in starting_roster]
@@ -270,7 +201,8 @@ def generate_roster_swaps(starting_roster: List[str], df: pd.DataFrame,
     # Validate starting roster is within budget
     if len(starting_roster) == 0:
         starting_cost = 0
-        max_swaps =15
+        # If roster is empty but not using wild generator, standard logic might fail.
+        # However, wild mode should handle empty starts.
     else:
         starting_cost = df[df['player_name'].isin(starting_roster)]['current_cost'].sum()
 
@@ -307,34 +239,31 @@ def generate_roster_swaps(starting_roster: List[str], df: pd.DataFrame,
     return valid_rosters
 
 @st.cache_data
-def optimize_roster_week(budget: float,
-                         starting_roster: List[str],
-                         df: pd.DataFrame,
+def optimize_roster_week(budget: float, starting_roster: List[str], df: pd.DataFrame,
                          week_days: List[str], obj_var: str = 'fg_pts',
-                         max_swaps: int = 2,
-                         wildcard: bool = False,
-                         verbose: bool = True) -> Dict:
+                         max_swaps: int = 2, verbose: bool = True,
+                         wildcard: bool = False) -> Dict:
     """
-    Optimize roster for a single week with up to max_swaps changes.
-
-    Args:
-        budget: Maximum total cost allowed
-        starting_roster: List of current 10 player names
-        df: DataFrame with all player data
-        week_days: List of day columns for this week
-        obj_var: Column name for the objective variable to maximize
-        max_swaps: Maximum number of players that can be swapped
-        verbose: Whether to print detailed progress information
-
-    Returns:
-        Dict with optimal roster, points, and swap details
+    Optimize roster for a single week.
+    
+    Args include 'wildcard': If True, ignores starting roster and generates fresh combinations.
     """
     if verbose:
         print(f"\nOptimizing roster for {len(week_days)} days...")
-        print(f"Starting roster cost: {df[df['player_name'].isin(starting_roster)]['current_cost'].sum():.0f}")
+        if not wildcard:
+            print(f"Starting roster cost: {df[df['player_name'].isin(starting_roster)]['current_cost'].sum():.0f}")
+        else:
+            print(f"WILD MODE: Generating fresh rosters from best available players...")
 
-    # Generate all valid roster combinations
-    valid_rosters = generate_roster_swaps(starting_roster, df, max_swaps, budget)
+    # Generate valid roster combinations
+    if wildcard:
+        # Use the Wild logic to generate completely new rosters
+        valid_rosters = generate_wild_rosters(df, budget, obj_var)
+        st.info(f"WILD MODE: Evaluating {len(valid_rosters)} high-potential rosters...")
+    else:
+        # Use Standard logic (Swaps)
+        valid_rosters = generate_roster_swaps(starting_roster, df, max_swaps, budget)
+        st.info(f"Evaluating {len(valid_rosters)} valid roster combinations...")
 
     if verbose:
         print(f"Evaluating {len(valid_rosters)} valid roster combinations...")
@@ -353,15 +282,21 @@ def optimize_roster_week(budget: float,
             best_evaluation = evaluation
 
     # Calculate changes from starting roster
-    players_out = [p for p in starting_roster if p not in best_roster]
-    players_in = [p for p in best_roster if p not in starting_roster]
-
+    # In Wild mode, starting_roster is effectively ignored, so everything is technically "IN"
+    # But to prevent UI clutter, if it's Wild, we can treat the starting roster as empty list for diffing
+    reference_roster = [] if wildcard else starting_roster
+    
+    players_out = [p for p in reference_roster if p not in best_roster]
+    players_in = [p for p in best_roster if p not in reference_roster]
+    
+    # If wild, we might not want to list 10 swaps, but for consistency we calculate them
+    
     return {
         'optimal_roster': best_roster,
         'total_points': best_points,
         'players_out': players_out,
         'players_in': players_in,
-        'num_swaps': len(players_out),
+        'num_swaps': len(players_in), # Use players_in count as 'swaps' for Wild mode consistency
         'daily_results': best_evaluation['daily_results'],
         'final_cost': df[df['player_name'].isin(best_roster)]['current_cost'].sum()
     }
@@ -369,52 +304,37 @@ def optimize_roster_week(budget: float,
 @st.cache_data
 def optimize_roster_multiweek(budget: float, starting_roster: List[str],
                               df: pd.DataFrame, start_week: int, num_weeks: int,
-                              days: List[str], obj_var: str = 'predicted_points',
-                              max_swaps: int = 2, wildcard: bool = False,
-                              verbose: bool = True) -> Dict:
+                              days: List[str], obj_var: str = 'fg_pts',
+                              max_swaps: int = 2, verbose: bool = True,
+                              wildcard: bool = False) -> Dict:
     """
-    Optimize roster across multiple weeks, using each week's solution as the next week's starting roster.
-
-    Args:
-        budget: Maximum total cost allowed (for all 10 players in roster)
-        starting_roster: List of initial 10 player names (ignored if wildcard=True for first week)
-        df: DataFrame with all player data
-        start_week: Week number to start optimization (e.g., 1, 5, 10)
-        num_weeks: Number of consecutive weeks to optimize starting from start_week
-        days: List of all day columns
-        obj_var: Column name for the objective variable to maximize
-        max_swaps: Maximum number of players that can be swapped per week (ignored if wildcard=True)
-        wildcard: If True, find best roster from scratch for first week, then use max_swaps for subsequent weeks
-        verbose: Whether to print detailed progress information
-
-    Returns:
-        Dict with results for each week and overall summary
+    Optimize roster across multiple weeks.
+    
+    If wildcard is True, the logic will generate a completely fresh roster for the START week,
+    and then use standard swaps for subsequent weeks.
     """
     weekly_results = {}
     current_roster = starting_roster.copy()
     total_points_all_weeks = 0
+
     end_week = start_week + num_weeks - 1
 
-    # Validate initial roster (only if not using wildcard)
+    # Validate initial roster
     initial_cost = df[df['player_name'].isin(starting_roster)]['current_cost'].sum()
 
     if verbose:
         print(f"\n{'=' * 70}")
+        print(f"MULTI-WEEK OPTIMIZATION: Weeks {start_week} to {end_week} ({num_weeks} weeks)")
+        print(f"Budget: ${budget:.0f} | Max swaps per week: {max_swaps}")
         if wildcard:
-            print(f"MULTI-WEEK OPTIMIZATION (WILDCARD MODE): Weeks {start_week} to {end_week}")
-            print(f"🃏 Week {start_week}: Wildcard selection (ignoring starting roster)")
-            print(f"Weeks {start_week + 1}-{end_week}: Max {max_swaps} swaps per week")
+            print("OPTION: WILD MODE ENABLED (Best 10 players selected for Week 1)")
         else:
-            print(f"MULTI-WEEK OPTIMIZATION: Weeks {start_week} to {end_week} ({num_weeks} weeks)")
-            print(f"Max swaps per week: {max_swaps}")
-        print(f"Budget: ${budget:.0f}")
-        if not wildcard:
             print(f"Initial roster cost: ${initial_cost:.0f}")
             if initial_cost > budget:
                 print(f"WARNING: Initial roster exceeds budget by ${initial_cost - budget:.0f}!")
         print(f"{'=' * 70}")
 
-    for week_idx, week_num in enumerate(range(start_week, start_week + num_weeks)):
+    for i, week_num in enumerate(range(start_week, start_week + num_weeks)):
         if verbose:
             print(f"\n{'*' * 70}")
             print(f"WEEK {week_num}")
@@ -427,8 +347,8 @@ def optimize_roster_multiweek(budget: float, starting_roster: List[str],
                 print(f"Warning: No days found for week {week_num}")
             continue
 
-        # Use wildcard only for the first week if wildcard=True
-        use_wildcard = wildcard and week_idx == 0
+        # Apply wildcard logic ONLY for the very first week of the loop if requested
+        is_wild_week = wildcard and (i == 0)
 
         week_result = optimize_roster_week(
             budget=budget,
@@ -437,15 +357,14 @@ def optimize_roster_multiweek(budget: float, starting_roster: List[str],
             week_days=week_days,
             obj_var=obj_var,
             max_swaps=max_swaps,
-            wildcard=use_wildcard,
-            verbose=verbose
+            verbose=verbose,
+            wildcard=is_wild_week
         )
 
-        # Check if there was an error
-        if 'error' in week_result:
-            if verbose:
-                print(f"\nStopping optimization due to error in week {week_num}")
-            break
+        # Check if there was an error or empty result
+        if not week_result.get('optimal_roster'):
+             if verbose: print(f"Optimization failed or returned no roster for week {week_num}")
+             break
 
         weekly_results[f'week_{week_num}'] = week_result
         total_points_all_weeks += week_result['total_points']
@@ -453,31 +372,42 @@ def optimize_roster_multiweek(budget: float, starting_roster: List[str],
         # Print week summary
         if verbose:
             print(f"\n--- Week {week_num} Summary ---")
-            if use_wildcard:
-                print(f"🃏 WILDCARD: Selected optimal 10-player roster from scratch")
             print(f"Total Points: {week_result['total_points']:.1f}")
             print(f"Roster Cost: ${week_result['final_cost']:.0f} / ${budget:.0f}")
 
             if week_result['num_swaps'] > 0:
-                if use_wildcard:
-                    print(f"\nWildcard Selection ({week_result['num_swaps']} changes from previous roster):")
+                print(f"\nRoster Changes ({week_result['num_swaps']} changes):")
+                if is_wild_week:
+                    print("  * WILD CARD USED: Complete Roster Reset *")
+                
+                # Limit output if it's a huge list (Wild Card)
+                if is_wild_week and len(week_result['players_in']) > 5:
+                     print(f"  (New roster selected with {len(week_result['players_in'])} players)")
                 else:
-                    print(f"\nRoster Changes ({week_result['num_swaps']} swaps):")
+                    for i, (out, in_) in enumerate(zip(week_result['players_out'], week_result['players_in']), 1):
+                        out_info = df[df['player_name'] == out]
+                        in_info = df[df['player_name'] == in_]
+                        
+                        # Handle potential missing data safely
+                        if not out_info.empty:
+                            out_cost = out_info['current_cost'].values[0]
+                            out_pts = out_info[obj_var].values[0]
+                        else:
+                             out_cost, out_pts = 0, 0
+                             
+                        if not in_info.empty:
+                            in_cost = in_info['current_cost'].values[0]
+                            in_pts = in_info[obj_var].values[0]
+                        else:
+                             in_cost, in_pts = 0, 0
 
-                for i, (out, in_) in enumerate(zip(week_result['players_out'], week_result['players_in']), 1):
-                    out_cost = df[df['player_name'] == out]['current_cost'].values[0]
-                    in_cost = df[df['player_name'] == in_]['current_cost'].values[0]
-                    out_pts = df[df['player_name'] == out][obj_var].values[0]
-                    in_pts = df[df['player_name'] == in_][obj_var].values[0]
-                    cost_diff = in_cost - out_cost
-                    pts_diff = in_pts - out_pts
-                    cost_sign = "+" if cost_diff > 0 else ""
-                    pts_sign = "+" if pts_diff > 0 else ""
-
-                    change_type = "Selected" if use_wildcard else f"Swap {i}"
-                    print(
-                        f"  {change_type}: {out} (${out_cost:.0f}, {out_pts:.1f}pts) → {in_} (${in_cost:.0f}, {in_pts:.1f}pts)")
-                    print(f"            Cost: {cost_sign}${cost_diff:.0f} | Points: {pts_sign}{pts_diff:.1f}")
+                        cost_diff = in_cost - out_cost
+                        pts_diff = in_pts - out_pts
+                        cost_sign = "+" if cost_diff > 0 else ""
+                        pts_sign = "+" if pts_diff > 0 else ""
+                        print(
+                            f"  Swap {i}: {out} (${out_cost:.0f}, {out_pts:.1f}pts) -> {in_} (${in_cost:.0f}, {in_pts:.1f}pts)")
+                        print(f"          Cost: {cost_sign}${cost_diff:.0f} | Points: {pts_sign}{pts_diff:.1f}")
             else:
                 print("\nNo roster changes made (current roster is optimal)")
 
@@ -494,8 +424,6 @@ def optimize_roster_multiweek(budget: float, starting_roster: List[str],
         print(f"Final Roster Cost: ${final_cost:.0f} / ${budget:.0f}")
         print(f"Remaining Budget: ${budget - final_cost:.0f}")
         print(f"Final Roster: {', '.join(current_roster)}")
-        if wildcard:
-            print(f"\n🃏 Wildcard was used for Week {start_week} initial selection")
 
     return {
         'weekly_results': weekly_results,
@@ -503,10 +431,10 @@ def optimize_roster_multiweek(budget: float, starting_roster: List[str],
         'final_roster': current_roster,
         'start_week': start_week,
         'end_week': end_week,
-        'num_weeks': num_weeks,
-        'wildcard_used': wildcard
+        'num_weeks': num_weeks
     }
 
+@st.cache_data
 def get_detailed_report(result: Dict, df: pd.DataFrame, obj_var: str = 'fg_pts'):
     """
     Generate a detailed report DataFrame from optimization results.
@@ -521,35 +449,42 @@ def get_detailed_report(result: Dict, df: pd.DataFrame, obj_var: str = 'fg_pts')
             players_out = week_data.get('players_out', [])
             players_in = week_data.get('players_in', [])
             num_swaps = week_data.get('num_swaps', 0)
-            is_wildcard = week_data.get('wildcard', False)
 
-            # Format roster changes
+            # Check if this was a Wildcard reset (implied if swaps > 5 usually, or checking logic)
+            # For report clarity, if num_swaps == 10, it's likely a fresh team or wild
+            is_wild = num_swaps > 5
+
             if num_swaps > 0:
-                roster_changes_out = ', '.join(players_out) if players_out else 'None'
-                roster_changes_in = ', '.join(players_in) if players_in else 'None'
+                if is_wild:
+                    roster_changes_out = "Previous Roster Dropped"
+                    roster_changes_in = "Wild Card Selection"
+                    swap_details_str = "Complete Roster Reset (Wild Mode)"
+                else:
+                    roster_changes_out = ', '.join(players_out) if players_out else 'None'
+                    roster_changes_in = ', '.join(players_in) if players_in else 'None'
+                    
+                    swap_details = []
+                    for out, in_ in zip(players_out, players_in):
+                        out_info = df[df['player_name'] == out]
+                        in_info = df[df['player_name'] == in_]
+                        
+                        out_cost = out_info['current_cost'].values[0] if not out_info.empty else 0
+                        in_cost = in_info['current_cost'].values[0] if not in_info.empty else 0
+                        out_pts = out_info[obj_var].values[0] if not out_info.empty else 0
+                        in_pts = in_info[obj_var].values[0] if not in_info.empty else 0
+                        
+                        swap_details.append(
+                            f"{out} (${out_cost:.0f}, {out_pts:.1f}pts) → {in_} (${in_cost:.0f}, {in_pts:.1f}pts)")
+                    swap_details_str = '; '.join(swap_details)
             else:
                 roster_changes_out = 'No changes'
                 roster_changes_in = 'No changes'
-
-            # Get cost and points info for swapped players
-            swap_details = []
-            if num_swaps > 0:
-                for out, in_ in zip(players_out, players_in):
-                    out_cost = df[df['player_name'] == out]['current_cost'].values[0]
-                    in_cost = df[df['player_name'] == in_]['current_cost'].values[0]
-                    out_pts = df[df['player_name'] == out][obj_var].values[0]
-                    in_pts = df[df['player_name'] == in_][obj_var].values[0]
-                    swap_details.append(
-                        f"{out} (${out_cost:.0f}, {out_pts:.1f}pts) → {in_} (${in_cost:.0f}, {in_pts:.1f}pts)")
-
-            swap_details_str = '; '.join(swap_details) if swap_details else 'No swaps'
-            mode = '🃏 Wildcard' if is_wildcard else 'Standard'
+                swap_details_str = 'No swaps'
 
             for day, day_data in week_data['daily_results'].items():
                 rows.append({
                     'week': week_num,
                     'day': day,
-                    'mode': mode,
                     'num_swaps': num_swaps,
                     'players_removed': roster_changes_out,
                     'players_added': roster_changes_in,
@@ -562,37 +497,38 @@ def get_detailed_report(result: Dict, df: pd.DataFrame, obj_var: str = 'fg_pts')
                 })
     else:
         # Single week result
+        # (Logic is similar but simplified for single result dict)
         players_out = result.get('players_out', [])
         players_in = result.get('players_in', [])
         num_swaps = result.get('num_swaps', 0)
-        is_wildcard = result.get('wildcard', False)
+        is_wild = num_swaps > 5
 
-        # Format roster changes
         if num_swaps > 0:
-            roster_changes_out = ', '.join(players_out) if players_out else 'None'
-            roster_changes_in = ', '.join(players_in) if players_in else 'None'
+            if is_wild:
+                 roster_changes_out = "Previous Roster Dropped"
+                 roster_changes_in = "Wild Card Selection"
+                 swap_details_str = "Complete Roster Reset (Wild Mode)"
+            else:
+                roster_changes_out = ', '.join(players_out) if players_out else 'None'
+                roster_changes_in = ', '.join(players_in) if players_in else 'None'
+                swap_details = []
+                for out, in_ in zip(players_out, players_in):
+                     out_info = df[df['player_name'] == out]
+                     in_info = df[df['player_name'] == in_]
+                     out_cost = out_info['current_cost'].values[0] if not out_info.empty else 0
+                     in_cost = in_info['current_cost'].values[0] if not in_info.empty else 0
+                     out_pts = out_info[obj_var].values[0] if not out_info.empty else 0
+                     in_pts = in_info[obj_var].values[0] if not in_info.empty else 0
+                     swap_details.append(f"{out} (${out_cost:.0f}, {out_pts:.1f}pts) → {in_} (${in_cost:.0f}, {in_pts:.1f}pts)")
+                swap_details_str = '; '.join(swap_details)
         else:
             roster_changes_out = 'No changes'
             roster_changes_in = 'No changes'
-
-        # Get cost and points info for swapped players
-        swap_details = []
-        if num_swaps > 0:
-            for out, in_ in zip(players_out, players_in):
-                out_cost = df[df['player_name'] == out]['current_cost'].values[0]
-                in_cost = df[df['player_name'] == in_]['current_cost'].values[0]
-                out_pts = df[df['player_name'] == out][obj_var].values[0]
-                in_pts = df[df['player_name'] == in_][obj_var].values[0]
-                swap_details.append(
-                    f"{out} (${out_cost:.0f}, {out_pts:.1f}pts) → {in_} (${in_cost:.0f}, {in_pts:.1f}pts)")
-
-        swap_details_str = '; '.join(swap_details) if swap_details else 'No swaps'
-        mode = '🃏 Wildcard' if is_wildcard else 'Standard'
+            swap_details_str = 'No swaps'
 
         for day, day_data in result['daily_results'].items():
             rows.append({
                 'day': day,
-                'mode': mode,
                 'num_swaps': num_swaps,
                 'players_removed': roster_changes_out,
                 'players_added': roster_changes_in,
@@ -606,9 +542,7 @@ def get_detailed_report(result: Dict, df: pd.DataFrame, obj_var: str = 'fg_pts')
 
     df_rows = pd.DataFrame(rows)
     df_rows['week_points'] = df_rows.points.sum().round()
-    df_lineup = df_rows[['week', 'day', 'lineup_config', 'players_active', 'backcourt_active', 'frontcourt_active',
-                         'points']] if 'week' in df_rows else df_rows
-    changes = df_rows[['week', 'num_swaps', 'players_removed', 'players_added', 'swap_details',
-                       'week_points']] if 'week' in df_rows else df_rows
+    df_lineup = df_rows[['week', 'day', 'lineup_config', 'players_active', 'backcourt_active', 'frontcourt_active', 'points']] if 'week' in df_rows else df_rows
+    changes = df_rows[['week', 'num_swaps', 'players_removed', 'players_added', 'swap_details', 'week_points']] if 'week' in df_rows else df_rows
 
     return df_lineup, changes

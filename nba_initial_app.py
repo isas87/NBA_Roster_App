@@ -50,7 +50,6 @@ with tab1:
         st.subheader("Last Historical Records")
         st.dataframe(
             st.session_state.historical_data[['player_name', 'pts', 'etl_date']].sort_values(by = ['etl_date', 'pts'], ascending= [False, False]).head(5),
-            use_container_width=True,
             hide_index=True
         )
 
@@ -58,7 +57,6 @@ with tab1:
         st.subheader("Latest Data - Sample")
         st.dataframe(
             df_raw[['player_name', 'pts', 'etl_date']].sort_values(by = ['etl_date', 'pts'], ascending= [False, False]).head(5),
-            use_container_width=True,
             hide_index=True
         )
 
@@ -107,14 +105,14 @@ with tab1:
 
     # Display the final ranking table
     tab1.subheader("Full Fantasy Ranking Table")
-    display_cols = ['player_name'] + TEAM_COL + COST_COL + FGP_COL + ['pts_per_cost'] + ['composite_Zscore'] + z_cols + ['cost_Zscore']
+    display_cols = ['player_name'] + TEAM_COL + ['position'] + COST_COL + FGP_COL + ['pts_per_cost'] + ['composite_Zscore'] + z_cols + ['cost_Zscore']
     tab1.dataframe(
         fantasy_rankings[display_cols].style.background_gradient(cmap='RdYlGn', subset=['pts_per_cost','composite_Zscore']),
-        use_container_width=True,
         hide_index=True,
         column_config={
             'player_name': 'Player',
             "team": "Team",
+            'position': 'Position',
             "current_cost": st.column_config.NumberColumn(
                 "Cost",
                 format="%.2f",
@@ -185,12 +183,15 @@ with tab2:
                     # key=None, help=None, on_change=None, args=None, kwargs=None, *, disabled=False,
                     label_visibility="visible", width="content")
 
+        st.markdown(f"Wildcard selected {wc_}")
+
     df_filter = pre_select_options(df=fantasy_rankings,
                                    n_weeks=num_weeks,
                                    min_rank_pts=min_pts_,
                                    min_rank_scr=min_score_,
                                    starting_roster=starting_r,
-                                   days = week_columns)
+                                   days = week_columns,
+                                   wildcard=wc_)
 
     # Button logic: When clicked, run roster optimization and update session state
     if st.button("Run Roster Optimization", type="primary"):
@@ -237,22 +238,9 @@ with tab2:
             st.write("Details:", changes['swap_details'][0])
             st.write("Week Points:", changes['week_points'][0])
 
-
-            # st.dataframe(df_report,
-            #              use_container_width=True,
-            #              width='stretch',
-            #              column_config= {
-            #                  'week': 'Week',
-            #                  'num_swaps': 'Num Swaps',
-            #                  'players_removed': 'Removed Players',
-            #                  'players_added': 'Added Players',
-            #                  'swap_details': 'Swap Details',
-            #                  'week_points': 'Week Points'
-            #              })
         with col6:
             st.subheader("Optimized Roster Lineup")
             st.dataframe(df_roster,
-                         use_container_width=True,
                          width='stretch',
                          column_config = {
                             'week': 'Week',
@@ -311,9 +299,8 @@ with tab3:
         )
         filtered_df = df_hist[mask]
     else:
-        filtered_df = df_hist[df_hist['player_name'].isin(selected_players)]
-
-    filtered_df = filtered_df.sort_values(by = ['etl_date','player_name'])
+        df_hist['etl_date'] = pd.to_datetime(df_hist['etl_date'])
+        filtered_df = df_hist[df_hist['player_name'].isin(selected_players)].sort_values(by = ['etl_date'])
 
     if filtered_df.empty:
         st.warning("No data available for selected filters")
@@ -368,7 +355,6 @@ with tab3:
     df_c = calculate_trend(filtered_df, selected_players, metric_name)
 
     st.dataframe(df_c,
-                 use_container_width=True,
                  width='content',
                  hide_index=True,
                  column_config={
