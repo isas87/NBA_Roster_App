@@ -188,8 +188,8 @@ def generate_wildcard_rosters(df: pd.DataFrame, budget: float, top_n: int = 100)
     for start_bc_idx in range(min(10, len(bc_players))):
         for start_fc_idx in range(min(10, len(fc_players))):
             # Sort by predicted points descending
-            bc_sorted = bc_players.sort_values('predicted_points', ascending=False)
-            fc_sorted = fc_players.sort_values('predicted_points', ascending=False)
+            bc_sorted = bc_players.sort_values('fg_pts', ascending=False)
+            fc_sorted = fc_players.sort_values('fg_pts', ascending=False)
 
             # Try different combinations of top players
             for bc_combo in combinations(bc_sorted.head(min(15, len(bc_sorted)))['player_name'], 5):
@@ -250,8 +250,11 @@ def generate_wildcard_rosters(df: pd.DataFrame, budget: float, top_n: int = 100)
     return valid_rosters if valid_rosters else []
 
 @st.cache_data
-def generate_roster_swaps(starting_roster: List[str], df: pd.DataFrame,
-                          max_swaps: int, budget: float) -> List[List[str]]:
+def generate_roster_swaps(starting_roster: List[str],
+                            df: pd.DataFrame,
+                            max_swaps: int,
+                            budget: float,
+                            wildcard:bool) -> List[List[str]]:
     """
     Generate all valid roster combinations with up to max_swaps changes.
 
@@ -334,7 +337,10 @@ def optimize_roster_week(budget: float,
         print(f"Starting roster cost: {df[df['player_name'].isin(starting_roster)]['current_cost'].sum():.0f}")
 
     # Generate all valid roster combinations
-    valid_rosters = generate_roster_swaps(starting_roster, df, max_swaps, budget)
+    if wildcard:
+        valid_rosters = generate_wildcard_rosters(df,budget)
+    else:
+        valid_rosters = generate_roster_swaps(starting_roster, df, max_swaps, budget)
 
     if verbose:
         print(f"Evaluating {len(valid_rosters)} valid roster combinations...")
@@ -369,7 +375,7 @@ def optimize_roster_week(budget: float,
 @st.cache_data
 def optimize_roster_multiweek(budget: float, starting_roster: List[str],
                               df: pd.DataFrame, start_week: int, num_weeks: int,
-                              days: List[str], obj_var: str = 'predicted_points',
+                              days: List[str], obj_var: str = 'fg_pts',
                               max_swaps: int = 2, wildcard: bool = False,
                               verbose: bool = True) -> Dict:
     """
@@ -457,6 +463,7 @@ def optimize_roster_multiweek(budget: float, starting_roster: List[str],
                 print(f"🃏 WILDCARD: Selected optimal 10-player roster from scratch")
             print(f"Total Points: {week_result['total_points']:.1f}")
             print(f"Roster Cost: ${week_result['final_cost']:.0f} / ${budget:.0f}")
+            print(f"result:" + {week_result})
 
             if week_result['num_swaps'] > 0:
                 if use_wildcard:

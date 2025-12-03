@@ -1,10 +1,11 @@
 # Import the data processing functions from the separate file
 import pandas as pd
+import plotly.express as px
 from datetime import datetime
 import time
 from data_processing import *
 from roster_optimizer import *
-from trend_performance_plot import *
+# from trend_performance_plot import *
 from trend_analysis import *
 import streamlit as st
 
