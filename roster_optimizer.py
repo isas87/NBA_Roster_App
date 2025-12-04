@@ -15,7 +15,7 @@ def pre_select_options(df: pd.DataFrame,
                        wildcard:bool) -> pd.DataFrame:
 
     today = pd.Timestamp.today().normalize()
-    date_plus = today + pd.Timedelta(weeks = n_weeks)
+    date_plus = today + pd.Timedelta(weeks=n_weeks)
     days_until_sunday = (6 - date_plus.weekday() + 7) % 7  # In pandas: Monday=0, ..., Sunday=6
     days_until_sunday = 7 if days_until_sunday == 0 else days_until_sunday
     final_date = date_plus + pd.Timedelta(days=days_until_sunday)
@@ -27,7 +27,8 @@ def pre_select_options(df: pd.DataFrame,
     df_filter = df_filter[pd.to_datetime(df_filter['when_back']) < today]  # exclude those that won't be available
     df_filter = df_filter[df_filter['games_played'] / max_games > .7]
     df_filter = df_filter[
-        ~((df_filter['rank_pts'] > min_rank_pts) | (df_filter['rank_ppc'] > 200) | (df_filter['rank_score'] > min_rank_scr))]
+        ~((df_filter['rank_pts'] > min_rank_pts) | (df_filter['rank_ppc'] > 200) | (
+                    df_filter['rank_score'] > min_rank_scr))]
 
     if wildcard:
         df_starting = pd.DataFrame()
@@ -37,7 +38,6 @@ def pre_select_options(df: pd.DataFrame,
     df_combined = pd.concat([df_filter, df_starting])  # , ignore_index = True)
     df_combined = df_combined.loc[~df_combined.index.duplicated(keep='first'), :]
     df_combined['games_available'] = df_combined[days].sum(axis=1)
-
     # index_col_name = df_filter.index.name if df_filter.index.name is not None else 'index'
     # df_combined = df_combined.reset_index().rename(columns={index_col_name: 'player_name'}).copy()
 
@@ -47,11 +47,9 @@ def pre_select_options(df: pd.DataFrame,
 def get_week_days(days: List[str], week_num: int) -> List[str]:
     """
     Extract day columns for a specific week.
-
     Args:
         days: List of all day columns (e.g., ['1_1', '1_2', ..., '2_1', '2_2', ...])
         week_num: Week number to filter (1, 2, 3, ...)
-
     Returns:
         List of day columns for the specified week
     """
@@ -63,13 +61,11 @@ def optimize_daily_lineup(roster_players: List[str], df: pd.DataFrame,
                           day_col: str, obj_var: str) -> Dict:
     """
     Optimize the 5-player lineup for a single day from a 10-player roster.
-
     Args:
         roster_players: List of 10 player names in the roster
         df: DataFrame with player data
         day_col: Column name for the day's schedule
         obj_var: Column name for the objective variable to maximize
-
     Returns:
         Dict with optimal lineup and total points
     """
@@ -139,13 +135,11 @@ def evaluate_roster_week(roster_players: List[str], df: pd.DataFrame,
                          week_days: List[str], obj_var: str) -> Dict:
     """
     Evaluate a roster for an entire week by optimizing daily lineups.
-
     Args:
         roster_players: List of 10 player names in the roster
         df: DataFrame with player data
         week_days: List of day columns for the week
         obj_var: Column name for the objective variable to maximize
-
     Returns:
         Dict with week total points and daily breakdowns
     """
@@ -163,17 +157,20 @@ def evaluate_roster_week(roster_players: List[str], df: pd.DataFrame,
         'roster': roster_players
     }
 
-
-@st.cache_data
-def generate_wildcard_rosters(df: pd.DataFrame, budget: float, top_n: int = 100) -> List[List[str]]:
+# @st.cache_data
+def generate_wildcard_rosters(df: pd.DataFrame,
+                              budget: float,
+                              obj_var: str = 'fg_pts',
+                              top_n: int = 50) -> List[List[str]]:
     """
     Generate candidate rosters by selecting best players from scratch (no starting roster constraint).
-    Uses a greedy + sampling approach to find high-quality rosters.
+    Uses a tiered approach based on cost and performance to find high-quality rosters.
 
     Args:
         df: DataFrame with all player data
         budget: Maximum total cost allowed
-        top_n: Number of top rosters to generate
+        obj_var: Column name for the objective variable to maximize
+        top_n: Maximum number of top rosters to generate
 
     Returns:
         List of valid roster combinations (each with 5 BC + 5 FC)
@@ -181,51 +178,105 @@ def generate_wildcard_rosters(df: pd.DataFrame, budget: float, top_n: int = 100)
     bc_players = df[df['position'] == 'Backcourt'].copy()
     fc_players = df[df['position'] == 'Frontcourt'].copy()
 
+    # Calculate statistics for backcourt
+    bc_mean_cost = bc_players['current_cost'].mean()
+    bc_std_cost = bc_players['current_cost'].std()
+
+    # Calculate statistics for frontcourt
+    fc_mean_cost = fc_players['current_cost'].mean()
+    fc_std_cost = fc_players['current_cost'].std()
+
+    # Tier 1: Premium players (cost > mean + 2*std, top points)
+    bc_tier1 = bc_players[bc_players['current_cost'] > (bc_mean_cost + 1 * bc_std_cost)].nlargest(12, obj_var)
+    fc_tier1 = fc_players[fc_players['current_cost'] > (fc_mean_cost + 1 * fc_std_cost)].nlargest(12, obj_var)
+
+    # Tier 2: Mid-tier players (cost between mean - std and mean + std, top points)
+    bc_tier2 = bc_players[
+        (bc_players['current_cost'] >= (bc_mean_cost - bc_std_cost)) &
+        (bc_players['current_cost'] <= (bc_mean_cost + bc_std_cost))
+        ].nlargest(20, obj_var)
+    fc_tier2 = fc_players[
+        (fc_players['current_cost'] >= (fc_mean_cost - fc_std_cost)) &
+        (fc_players['current_cost'] <= (fc_mean_cost + fc_std_cost))
+        ].nlargest(20, obj_var)
+
+    # Tier 3: Value players (cost < mean - 2*std, best points per dollar)
+    bc_tier3 = bc_players[bc_players['current_cost'] < (bc_mean_cost - 1 * bc_std_cost)].copy()
+    bc_tier3['value'] = bc_tier3[obj_var] / bc_tier3['current_cost']
+    bc_tier3 = bc_tier3.nlargest(18, 'value')
+
+    fc_tier3 = fc_players[fc_players['current_cost'] < (fc_mean_cost - 1 * fc_std_cost)].copy()
+    fc_tier3['value'] = fc_tier3[obj_var] / fc_tier3['current_cost']
+    fc_tier3 = fc_tier3.nlargest(18, 'value')
+
+    # Combine all tiers for each position
+    bc_candidates = pd.concat([bc_tier1, bc_tier2, bc_tier3]).drop_duplicates(subset=['player_name'])
+    fc_candidates = pd.concat([fc_tier1, fc_tier2, fc_tier3]).drop_duplicates(subset=['player_name'])
+
+    print(f"  Backcourt candidates: {len(bc_candidates)} players")
+    print(f"  Frontcourt candidates: {len(fc_candidates)} players")
+
     valid_rosters = []
     seen_rosters = set()
 
-    # Strategy 1: Greedy by predicted points (multiple starting points)
-    for start_bc_idx in range(min(10, len(bc_players))):
-        for start_fc_idx in range(min(10, len(fc_players))):
-            # Sort by predicted points descending
-            bc_sorted = bc_players.sort_values('fg_pts', ascending=False)
-            fc_sorted = fc_players.sort_values('fg_pts', ascending=False)
+    # Strategy 1: Try all combinations from candidate pools (most comprehensive)
+    bc_list = bc_candidates['player_name'].tolist()
+    fc_list = fc_candidates['player_name'].tolist()
 
-            # Try different combinations of top players
-            for bc_combo in combinations(bc_sorted.head(min(15, len(bc_sorted)))['player_name'], 5):
-                bc_cost = df[df['player_name'].isin(bc_combo)]['current_cost'].sum()
+    # Limit combinations to avoid excessive computation
+    max_bc_to_try = min(len(bc_list), 25)
+    max_fc_to_try = min(len(fc_list), 25)
 
-                if bc_cost > budget:
-                    continue
+    attempt_count = 0
+    max_attempts = 50000  # Limit total attempts
 
-                remaining_budget = budget - bc_cost
+    # Try combinations with different strategies
+    # Strategy 1a: Sort by points and try top combinations
+    bc_by_points = bc_candidates.nsmallest(max_bc_to_try, 'current_cost')['player_name'].tolist()
+    fc_by_points = fc_candidates.nsmallest(max_fc_to_try, 'current_cost')['player_name'].tolist()
 
-                # Find FC players that fit remaining budget
-                for fc_combo in combinations(fc_sorted.head(min(15, len(fc_sorted)))['player_name'], 5):
-                    fc_cost = df[df['player_name'].isin(fc_combo)]['current_cost'].sum()
+    for bc_combo in combinations(bc_by_points, 5):
+        if attempt_count >= max_attempts:
+            break
 
-                    if fc_cost <= remaining_budget:
-                        roster = sorted(list(bc_combo) + list(fc_combo))
-                        roster_key = tuple(roster)
+        bc_cost = df[df['player_name'].isin(bc_combo)]['current_cost'].sum()
 
-                        if roster_key not in seen_rosters:
-                            seen_rosters.add(roster_key)
-                            valid_rosters.append(roster)
+        if bc_cost > budget:
+            continue
 
-                            if len(valid_rosters) >= top_n:
-                                return valid_rosters
+        remaining_budget = budget - bc_cost
 
-    # Strategy 2: Value-based (points per dollar)
-    if len(valid_rosters) < top_n:
-        bc_value = bc_players.copy()
-        bc_value['value'] = bc_value['fg_pts'] / bc_value['current_cost']
-        bc_value = bc_value.sort_values('value', ascending=False)
+        for fc_combo in combinations(fc_by_points, 5):
+            attempt_count += 1
 
-        fc_value = fc_players.copy()
-        fc_value['value'] = fc_value['fg_pts'] / fc_value['current_cost']
-        fc_value = fc_value.sort_values('value', ascending=False)
+            fc_cost = df[df['player_name'].isin(fc_combo)]['current_cost'].sum()
 
-        for bc_combo in combinations(bc_value.head(min(12, len(bc_value)))['player_name'], 5):
+            if fc_cost <= remaining_budget:
+                roster = sorted(list(bc_combo) + list(fc_combo))
+                roster_key = tuple(roster)
+
+                if roster_key not in seen_rosters:
+                    seen_rosters.add(roster_key)
+                    valid_rosters.append(roster)
+
+                    if len(valid_rosters) >= top_n:
+                        print(f"  Found {len(valid_rosters)} valid rosters")
+                        return valid_rosters
+
+    # Strategy 1b: Try value-based combinations if we need more rosters
+    if len(valid_rosters) < top_n and attempt_count < max_attempts:
+        bc_candidates_val = bc_candidates.copy()
+        bc_candidates_val['value'] = bc_candidates_val[obj_var] / bc_candidates_val['current_cost']
+        bc_by_value = bc_candidates_val.nlargest(max_bc_to_try, 'value')['player_name'].tolist()
+
+        fc_candidates_val = fc_candidates.copy()
+        fc_candidates_val['value'] = fc_candidates_val[obj_var] / fc_candidates_val['current_cost']
+        fc_by_value = fc_candidates_val.nlargest(max_fc_to_try, 'value')['player_name'].tolist()
+
+        for bc_combo in combinations(bc_by_value, 5):
+            if attempt_count >= max_attempts or len(valid_rosters) >= top_n:
+                break
+
             bc_cost = df[df['player_name'].isin(bc_combo)]['current_cost'].sum()
 
             if bc_cost > budget:
@@ -233,7 +284,9 @@ def generate_wildcard_rosters(df: pd.DataFrame, budget: float, top_n: int = 100)
 
             remaining_budget = budget - bc_cost
 
-            for fc_combo in combinations(fc_value.head(min(12, len(fc_value)))['player_name'], 5):
+            for fc_combo in combinations(fc_by_value, 5):
+                attempt_count += 1
+
                 fc_cost = df[df['player_name'].isin(fc_combo)]['current_cost'].sum()
 
                 if fc_cost <= remaining_budget:
@@ -245,16 +298,63 @@ def generate_wildcard_rosters(df: pd.DataFrame, budget: float, top_n: int = 100)
                         valid_rosters.append(roster)
 
                         if len(valid_rosters) >= top_n:
-                            return valid_rosters
+                            break
 
+    # Strategy 2: Greedy approach - build rosters by selecting highest points that fit budget
+    if len(valid_rosters) < 10:
+        print(f"  Warning: Only found {len(valid_rosters)} rosters so far, trying greedy approach...")
+
+        # Sort all candidates by points
+        bc_sorted = bc_candidates.sort_values(obj_var, ascending=False)
+        fc_sorted = fc_candidates.sort_values(obj_var, ascending=False)
+
+        # Try starting with different top players
+        for bc_start_idx in range(min(10, len(bc_sorted))):
+            if len(valid_rosters) >= top_n:
+                break
+
+            for fc_start_idx in range(min(10, len(fc_sorted))):
+                if len(valid_rosters) >= top_n:
+                    break
+
+                # Build roster greedily
+                selected_bc = []
+                selected_fc = []
+                current_cost = 0
+
+                # Add players greedily by points until we have 5 of each
+                for _, bc_player in bc_sorted.iterrows():
+                    if len(selected_bc) >= 5:
+                        break
+                    player_cost = bc_player['current_cost']
+                    if current_cost + player_cost <= budget:
+                        selected_bc.append(bc_player['player_name'])
+                        current_cost += player_cost
+
+                for _, fc_player in fc_sorted.iterrows():
+                    if len(selected_fc) >= 5:
+                        break
+                    player_cost = fc_player['current_cost']
+                    if current_cost + player_cost <= budget:
+                        selected_fc.append(fc_player['player_name'])
+                        current_cost += player_cost
+
+                if len(selected_bc) == 5 and len(selected_fc) == 5:
+                    roster = sorted(selected_bc + selected_fc)
+                    roster_key = tuple(roster)
+
+                    if roster_key not in seen_rosters:
+                        seen_rosters.add(roster_key)
+                        valid_rosters.append(roster)
+
+    print(f"  Found {len(valid_rosters)} valid rosters")
     return valid_rosters if valid_rosters else []
 
-@st.cache_data
+# @st.cache_data
 def generate_roster_swaps(starting_roster: List[str],
                             df: pd.DataFrame,
                             max_swaps: int,
-                            budget: float,
-                            wildcard:bool) -> List[List[str]]:
+                            budget: float) -> List[List[str]]:
     """
     Generate all valid roster combinations with up to max_swaps changes.
 
@@ -463,7 +563,7 @@ def optimize_roster_multiweek(budget: float, starting_roster: List[str],
                 print(f"🃏 WILDCARD: Selected optimal 10-player roster from scratch")
             print(f"Total Points: {week_result['total_points']:.1f}")
             print(f"Roster Cost: ${week_result['final_cost']:.0f} / ${budget:.0f}")
-            print(f"result:" + {week_result})
+            # print(f"result:" + {week_result})
 
             if week_result['num_swaps'] > 0:
                 if use_wildcard:
