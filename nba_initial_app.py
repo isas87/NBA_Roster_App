@@ -3,6 +3,9 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import time
+
+from IPython.utils import wildcard
+
 from data_processing import *
 from roster_optimizer import *
 # from trend_performance_plot import *
@@ -228,16 +231,20 @@ with tab2:
 
     if not df_report.empty:
 
-        col5, col6= st.columns(2)
+        col5, col6= st.columns([1,3])
 
         with col5:
             st.subheader("Optimized Roster - Summary")
             st.write("Week:", changes['week'][0])
-            st.write("No Swaps:", changes['num_swaps'][0])
-            st.write("Removed Players: -->", changes['players_removed'][0])
-            st.write("Added Players: <--", changes['players_added'][0])
-            st.write("Details:", changes['swap_details'][0])
+            if wildcard:
+                st.write("Roster", changes['full_lineup'][0] )
+            else:
+                st.write("No Swaps:", changes['num_swaps'][0])
+                st.write("Removed Players: -->", changes['players_removed'][0])
+                st.write("Added Players: <--", changes['players_added'][0])
+                st.write("Details:", changes['swap_details'][0])
             st.write("Week Points:", changes['week_points'][0])
+            st.write("Total Cost", changes['final_cost'][1])
 
         with col6:
             st.subheader("Optimized Roster Lineup")
